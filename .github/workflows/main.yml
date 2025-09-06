@@ -1,75 +1,58 @@
-name: RDP
+name: GCP RDP VM
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 3600
-
+  create-vm:
+    runs-on: ubuntu-latest
     steps:
-      - name: Enable RDP + Disable NLA
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "SecurityLayer" -Value 0 -Force
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
 
-          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
-
-      - name: Create Autologin User
+      - name: Enable required APIs
         run: |
-          $username = "RDP"
-          $password = "882188Adr"
-          net user $username $password /add
-          net localgroup administrators $username /add
-          net localgroup "Remote Desktop Users" $username /add
+          gcloud services enable compute.googleapis.com
+
+      - name: Create VM with Tesla T4
+        run: |
+          VM_NAME="rdp-vm-${GITHUB_RUN_ID}"
+          REGION="southamerica-east1"
+          ZONE="southamerica-east1-b"
           
-          # Ativar autologin
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "AutoAdminLogon" -Value "1" -Type String
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultUserName" -Value $username -Type String
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultPassword" -Value $password -Type String
+          # Criar a VM Windows Server com GPU Tesla T4
+          gcloud compute instances create $VM_NAME \
+            --zone=$ZONE \
+            --machine-type=n1-standard-4 \
+            --accelerator="type=nvidia-tesla-t4,count=1" \
+            --image-project=windows-cloud \
+            --image-family=windows-2022 \
+            --boot-disk-size=100GB \
+            --maintenance-policy=TERMINATE \
+            --restart-on-failure \
+            --scopes=https://www.googleapis.com/auth/cloud-platform
 
-      - name: Install NVIDIA GPU Drivers
-        run: |
-          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
-          $driver = "$env:TEMP\nvidia_driver.exe"
-          Invoke-WebRequest -Uri $url -OutFile $driver
-          Start-Process -FilePath $driver -ArgumentList "-s" -Wait
-          Remove-Item $driver -Force
+          # Abrir firewall do RDP
+          gcloud compute firewall-rules create allow-rdp --allow tcp:3389 --target-tags=rdp --quiet || true
+          gcloud compute instances add-tags $VM_NAME --zone=$ZONE --tags=rdp
 
-      - name: Install Tailscale
+      - name: Get VM External IP
+        id: get-ip
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
-
-      - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          for ($i=0; $i -lt 10; $i++) {
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-            if ($tsIP) { break }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $tsIP) { throw "No Tailscale IP found" }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          VM_NAME="rdp-vm-${GITHUB_RUN_ID}"
+          ZONE="southamerica-east1-b"
+          IP=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+          echo "VM_IP=$IP" >> $GITHUB_ENV
 
       - name: Show Access Info
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: 882188Adr"
-          Write-Host "==================`n"
-          while ($true) { Start-Sleep -Seconds 300 }
+          echo "===================================="
+          echo "✅ VM criada com sucesso no GCP!"
+          echo "IP da VM: ${{ env.VM_IP }}"
+          echo "Usuário: configure depois no painel GCP (reset Windows password)"
+          echo "GPU: Tesla T4"
+          echo "Região: São Paulo (southamerica-east1)"
+          echo "===================================="
