@@ -21,18 +21,21 @@ jobs:
           netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
-      - name: Create Autologin User (No Password)
+      - name: Create Autologin User
         run: |
           $username = "RDP"
-          $password = ""
+          $password = "882188Adr"
           net user $username $password /add
           net localgroup administrators $username /add
           net localgroup "Remote Desktop Users" $username /add
           
-          # Enable auto login without password
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "1" -PropertyType String -Force
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultUserName" -Value $username -PropertyType String -Force
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultPassword" -Value $password -PropertyType String -Force
+          # Ativar autologin
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "AutoAdminLogon" -Value "1" -Type String
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultUserName" -Value $username -Type String
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultPassword" -Value $password -Type String
 
       - name: Install NVIDIA GPU Drivers
         run: |
@@ -67,6 +70,6 @@ jobs:
           Write-Host "`n=== RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
-          Write-Host "Password: (no password, autologin enabled)"
+          Write-Host "Password: 882188Adr"
           Write-Host "==================`n"
           while ($true) { Start-Sleep -Seconds 300 }
