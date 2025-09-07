@@ -11,13 +11,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      # Autenticar no GCP usando a chave JSON da service account
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v1
+        uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          export_default_credentials: true
 
+      # Criar VM Windows com GPU
       - name: Create Windows VM with GPU
         run: |
           gcloud compute instances create win-vm-gpu \
@@ -32,6 +37,7 @@ jobs:
             --tags=rdp \
             --scopes=cloud-platform
 
+      # Abrir firewall para RDP
       - name: Open Firewall for RDP
         run: |
           gcloud compute firewall-rules create allow-rdp \
@@ -39,8 +45,16 @@ jobs:
             --target-tags=rdp \
             --source-ranges=0.0.0.0/0 || true
 
-      - name: Show Access Info
+      # Mostrar IP da VM
+      - name: Show VM IP
         run: |
-          echo "✅ VM criada com sucesso!"
-          echo "Para pegar o IP da VM rode:"
-          echo "gcloud compute instances list --filter=name:win-vm-gpu"
+          echo "🔎 Pegando IP da VM..."
+          gcloud compute instances list --filter=name:win-vm-gpu
+
+      # Gerar usuário e senha do Windows
+      - name: Get Windows Credentials
+        run: |
+          echo "🔑 Gerando usuário e senha para login no Windows..."
+          gcloud compute reset-windows-password win-vm-gpu \
+            --zone=southamerica-east1-b \
+            --user=Administrador
