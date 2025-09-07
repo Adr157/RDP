@@ -53,9 +53,12 @@ jobs:
           Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"
           Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"
 
-          # Desligar serviços desnecessários (exemplos)
-          Stop-Service -Name "DiagTrack","WSearch","Spooler" -ErrorAction SilentlyContinue
-          Set-Service -Name "DiagTrack","WSearch","Spooler" -StartupType Disabled -ErrorAction SilentlyContinue
+          # Desligar serviços desnecessários
+          $services = "DiagTrack","WSearch","Spooler"
+          foreach ($s in $services) {
+              Stop-Service -Name $s -ErrorAction SilentlyContinue
+              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
+          }
 
           # Desligar efeitos da barra e transparências
           reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
