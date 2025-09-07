@@ -1,4 +1,4 @@
-name: RDP
+name: RDP Hyper Optimized
 
 on:
   workflow_dispatch:
@@ -44,32 +44,22 @@ jobs:
           Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait
           Remove-Item $driver -Force
 
-      - name: Install Sunshine
+      - name: Ultra Optimize Windows Performance
         run: |
-          $url = "https://sunshine.stream/download/SunshineInstaller.msi"
-          $installer = "$env:TEMP\sunshine.msi"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installer -Force
-
-      - name: Configure Sunshine Autostart
-        run: |
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" `
-            -Name "Sunshine" -Value "C:\Program Files\Sunshine\sunshine.exe" -PropertyType String -Force
-
-      - name: Install Roblox
-        run: |
-          $url = "https://setup.rbxcdn.com/RobloxPlayerLauncher.exe"
-          $installer = "$env:TEMP\roblox.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process $installer -ArgumentList "/silent" -Wait
-          Remove-Item $installer -Force
-
-      - name: Optimize Windows Performance
-        run: |
-          # Desativar animações pesadas
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
+          # Desativar animações, efeitos visuais e atrasos
           reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"
+
+          # Desligar serviços desnecessários (exemplos)
+          Stop-Service -Name "DiagTrack","WSearch","Spooler" -ErrorAction SilentlyContinue
+          Set-Service -Name "DiagTrack","WSearch","Spooler" -StartupType Disabled -ErrorAction SilentlyContinue
+
+          # Desligar efeitos da barra e transparências
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
 
       - name: Install Tailscale
         run: |
@@ -98,7 +88,7 @@ jobs:
           Write-Host "Username: RDP"
           Write-Host "Password: 882188Adr"
           Write-Host "✅ GPU driver installed"
-          Write-Host "✅ Sunshine installed"
-          Write-Host "✅ Roblox installed"
+          Write-Host "✅ Windows ultra optimized"
+          Write-Host "✅ Tailscale ready"
           Write-Host "==================`n"
           while ($true) { Start-Sleep -Seconds 300 }
