@@ -1,60 +1,104 @@
-name: Create-GCP-VM
+name: RDP
 
 on:
   workflow_dispatch:
 
 jobs:
-  create-vm:
-    runs-on: ubuntu-latest
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 3600
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      # Autenticar no GCP usando a chave JSON da service account
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-
-      # Criar VM Windows com GPU
-      - name: Create Windows VM with GPU
+      - name: Enable RDP + Disable NLA
         run: |
-          gcloud compute instances create win-vm-gpu \
-            --zone=southamerica-east1-b \
-            --machine-type=n1-standard-8 \
-            --accelerator=type=nvidia-tesla-t4,count=1 \
-            --image-project=windows-cloud \
-            --image-family=windows-2019 \
-            --boot-disk-size=100GB \
-            --maintenance-policy=TERMINATE \
-            --restart-on-failure \
-            --tags=rdp \
-            --scopes=cloud-platform
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                           -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                           -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                           -Name "SecurityLayer" -Value 0 -Force
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
+          Restart-Service -Name TermService -Force
 
-      # Abrir firewall para RDP
-      - name: Open Firewall for RDP
+      - name: Create Autologin User
         run: |
-          gcloud compute firewall-rules create allow-rdp \
-            --allow tcp:3389 \
-            --target-tags=rdp \
-            --source-ranges=0.0.0.0/0 || true
+          $username = "RDP"
+          $password = "882188Adr"
+          net user $username $password /add
+          net localgroup administrators $username /add
+          net localgroup "Remote Desktop Users" $username /add
 
-      # Mostrar IP da VM
-      - name: Show VM IP
-        run: |
-          echo "🔎 Pegando IP da VM..."
-          gcloud compute instances list --filter=name:win-vm-gpu
+          # Ativar autologin
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "AutoAdminLogon" -Value "1" -Type String
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultUserName" -Value $username -Type String
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultPassword" -Value $password -Type String
 
-      # Gerar usuário e senha do Windows
-      - name: Get Windows Credentials
+      - name: Install NVIDIA GPU Drivers
         run: |
-          echo "🔑 Gerando usuário e senha para login no Windows..."
-          gcloud compute reset-windows-password win-vm-gpu \
-            --zone=southamerica-east1-b \
-            --user=Administrador
+          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
+          $driver = "$env:TEMP\nvidia_driver.exe"
+          Invoke-WebRequest -Uri $url -OutFile $driver
+          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait
+          Remove-Item $driver -Force
+
+      - name: Install Sunshine
+        run: |
+          $url = "https://sunshine.stream/download/SunshineInstaller.msi"
+          $installer = "$env:TEMP\sunshine.msi"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installer -Force
+
+      - name: Configure Sunshine Autostart
+        run: |
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" `
+            -Name "Sunshine" -Value "C:\Program Files\Sunshine\sunshine.exe" -PropertyType String -Force
+
+      - name: Install Roblox
+        run: |
+          $url = "https://setup.rbxcdn.com/RobloxPlayerLauncher.exe"
+          $installer = "$env:TEMP\roblox.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process $installer -ArgumentList "/silent" -Wait
+          Remove-Item $installer -Force
+
+      - name: Optimize Windows Performance
+        run: |
+          # Desativar animações pesadas
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
+
+      - name: Install Tailscale
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+
+      - name: Establish Tailscale Connection
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          $tsIP = $null
+          for ($i=0; $i -lt 10; $i++) {
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if ($tsIP) { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $tsIP) { throw "No Tailscale IP found" }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Show Access Info
+        run: |
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Username: RDP"
+          Write-Host "Password: 882188Adr"
+          Write-Host "✅ GPU driver installed"
+          Write-Host "✅ Sunshine installed"
+          Write-Host "✅ Roblox installed"
+          Write-Host "==================`n"
+          while ($true) { Start-Sleep -Seconds 300 }
