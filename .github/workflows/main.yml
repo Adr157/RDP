@@ -1,54 +1,48 @@
-name: RDP Hyper Optimized (Ngrok)
+name: Windows RDP
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 360
-
     steps:
-      - name: Enable RDP + Disable NLA
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "UserAuthentication" -Value 0 -Force
-          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
+    - name: Enable RDP + Disable NLA
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
 
-      - name: Create Autologin User
-        run: |
-          $username = "RDP"
-          $password = "882188Adr"
-          net user $username $password /add
-          net localgroup administrators $username /add
-          net localgroup "Remote Desktop Users" $username /add
+    - name: Create Autologin User
+      run: |
+        $username = "RDP"
+        $password = "12345678"
+        net user /add $username $password
+        net localgroup administrators $username /add
+        reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 1 /f
+        reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUsername /t REG_SZ /d $username /f
+        reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /t REG_SZ /d $password /f
 
-      - name: Download & Setup Ngrok
-        run: |
-          Invoke-WebRequest -Uri https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
-          Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok -Force
-          $env:Path += ";$env:USERPROFILE\ngrok"
-          echo "NGROK_READY=1" >> $env:GITHUB_ENV
+    - name: Download & Setup Ngrok
+      run: |
+        Invoke-WebRequest -Uri https://bin.ngrok.com/windows/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+        Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok -Force
+        cd $env:USERPROFILE\ngrok
+        .\ngrok.exe config add-authtoken $env:NGROK_AUTH_TOKEN
 
-      - name: Start Ngrok Tunnel (TCP 3389)
-        run: |
-          cd $env:USERPROFILE\ngrok
-          .\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-          Start-Process -NoNewWindow -FilePath .\ngrok.exe -ArgumentList "tcp 3389"
-          Start-Sleep -Seconds 5
-          Invoke-WebRequest -Uri http://127.0.0.1:4040/api/tunnels | Out-File tunnel.json
-          $tunnel = Get-Content tunnel.json | ConvertFrom-Json
-          $addr = $tunnel.tunnels[0].public_url -replace "tcp://",""
-          echo "NGROK_TCP=$addr" >> $env:GITHUB_ENV
+    - name: Start Ngrok Tunnel (TCP 3389)
+      run: |
+        cd $env:USERPROFILE\ngrok
+        Start-Process .\ngrok.exe "tcp 3389"
+        Start-Sleep -Seconds 10
+        Invoke-WebRequest -Uri http://127.0.0.1:4040/api/tunnels -OutFile ngrok.json
+        Get-Content ngrok.json
 
-      - name: Show Access Info
-        run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Ngrok Address: $env:NGROK_TCP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: 882188Adr"
-          Write-Host "==================`n"
-          while ($true) { Start-Sleep -Seconds 300 }
+    - name: Show Access Info
+      run: |
+        Write-Output "===================="
+        Write-Output "✅ RDP Ready!"
+        Write-Output "Username: RDP"
+        Write-Output "Password: 12345678"
+        Write-Output "Ngrok address is shown above (look for tcp://... in ngrok.json)"
+        Write-Output "===================="
