@@ -16,7 +16,7 @@ jobs:
     - name: Create Autologin User
       run: |
         $username = "RDP"
-        $password = "12345678"
+        $password = "Rdp@12345"
         net user /add $username $password
         net localgroup administrators $username /add
         reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 1 /f
@@ -25,7 +25,7 @@ jobs:
 
     - name: Download & Setup Ngrok
       run: |
-        Invoke-WebRequest -Uri https://bin.ngrok.com/windows/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+        Invoke-WebRequest -Uri https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
         Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok -Force
         cd $env:USERPROFILE\ngrok
         .\ngrok.exe config add-authtoken $env:NGROK_AUTH_TOKEN
@@ -43,6 +43,6 @@ jobs:
         Write-Output "===================="
         Write-Output "✅ RDP Ready!"
         Write-Output "Username: RDP"
-        Write-Output "Password: 12345678"
+        Write-Output "Password: Rdp@12345"
         Write-Output "Ngrok address is shown above (look for tcp://... in ngrok.json)"
         Write-Output "===================="
