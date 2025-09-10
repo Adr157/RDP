@@ -1,4 +1,4 @@
-name: RDP Hyper Optimized
+name: RDP Hyper Optimized (Ngrok)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 3600
+    timeout-minutes: 360
 
     steps:
       - name: Enable RDP + Disable NLA
@@ -15,8 +15,6 @@ jobs:
                            -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
                            -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "SecurityLayer" -Value 0 -Force
           netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
@@ -28,70 +26,29 @@ jobs:
           net localgroup administrators $username /add
           net localgroup "Remote Desktop Users" $username /add
 
-          # Ativar autologin
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "AutoAdminLogon" -Value "1" -Type String
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultUserName" -Value $username -Type String
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultPassword" -Value $password -Type String
-
-      - name: Install NVIDIA GPU Drivers
+      - name: Download & Setup Ngrok
         run: |
-          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
-          $driver = "$env:TEMP\nvidia_driver.exe"
-          Invoke-WebRequest -Uri $url -OutFile $driver
-          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait
-          Remove-Item $driver -Force
+          Invoke-WebRequest -Uri https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok -Force
+          $env:Path += ";$env:USERPROFILE\ngrok"
+          echo "NGROK_READY=1" >> $env:GITHUB_ENV
 
-      - name: Ultra Optimize Windows Performance
+      - name: Start Ngrok Tunnel (TCP 3389)
         run: |
-          # Desativar animações, efeitos visuais e atrasos
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"
-
-          # Desligar serviços desnecessários
-          $services = "DiagTrack","WSearch","Spooler"
-          foreach ($s in $services) {
-              Stop-Service -Name $s -ErrorAction SilentlyContinue
-              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
-          }
-
-          # Desligar efeitos da barra e transparências
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
-
-      - name: Install Tailscale
-        run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
-
-      - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          for ($i=0; $i -lt 10; $i++) {
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-            if ($tsIP) { break }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $tsIP) { throw "No Tailscale IP found" }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          cd $env:USERPROFILE\ngrok
+          .\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          Start-Process -NoNewWindow -FilePath .\ngrok.exe -ArgumentList "tcp 3389"
+          Start-Sleep -Seconds 5
+          Invoke-WebRequest -Uri http://127.0.0.1:4040/api/tunnels | Out-File tunnel.json
+          $tunnel = Get-Content tunnel.json | ConvertFrom-Json
+          $addr = $tunnel.tunnels[0].public_url -replace "tcp://",""
+          echo "NGROK_TCP=$addr" >> $env:GITHUB_ENV
 
       - name: Show Access Info
         run: |
           Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Ngrok Address: $env:NGROK_TCP"
           Write-Host "Username: RDP"
           Write-Host "Password: 882188Adr"
-          Write-Host "✅ GPU driver installed"
-          Write-Host "✅ Windows ultra optimized"
-          Write-Host "✅ Tailscale ready"
           Write-Host "==================`n"
           while ($true) { Start-Sleep -Seconds 300 }
