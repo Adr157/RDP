@@ -25,18 +25,19 @@ jobs:
 
     - name: Download & Setup Ngrok
       run: |
-        Invoke-WebRequest -Uri https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-        Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok -Force
-        cd $env:USERPROFILE\ngrok
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        Expand-Archive -Path "ngrok.zip" -DestinationPath "$env:USERPROFILE\ngrok" -Force
+        cd "$env:USERPROFILE\ngrok"
         .\ngrok.exe config add-authtoken $env:NGROK_AUTH_TOKEN
 
     - name: Start Ngrok Tunnel (TCP 3389)
       run: |
-        cd $env:USERPROFILE\ngrok
+        cd "$env:USERPROFILE\ngrok"
         Start-Process .\ngrok.exe "tcp 3389"
         Start-Sleep -Seconds 10
-        Invoke-WebRequest -Uri http://127.0.0.1:4040/api/tunnels -OutFile ngrok.json
-        Get-Content ngrok.json
+        $tunnel = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels
+        $publicUrl = ($tunnel.tunnels | Where-Object {$_.proto -eq "tcp"}).public_url
+        Write-Output "Ngrok TCP Address: $publicUrl" | Tee-Object -FilePath ngrok_address.txt
 
     - name: Show Access Info
       run: |
@@ -44,5 +45,5 @@ jobs:
         Write-Output "✅ RDP Ready!"
         Write-Output "Username: RDP"
         Write-Output "Password: Rdp@12345"
-        Write-Output "Ngrok address is shown above (look for tcp://... in ngrok.json)"
+        Write-Output "Connect via: $(Get-Content ngrok_address.txt)"
         Write-Output "===================="
