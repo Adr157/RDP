@@ -1,41 +1,98 @@
-name: RDP Windows
+name: RDP Hyper Optimized
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: windows-latest
+secure-rdp:
+runs-on: windows-latest
+timeout-minutes: 3600
 
-    steps:
-      - name: Baixar & Configurar Ngrok
-        run: |
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
-          mkdir "$env:USERPROFILE\ngrok"
-          tar -xf "ngrok.zip" -C "$env:USERPROFILE\ngrok"
-          cd "$env:USERPROFILE\ngrok"
-          .\ngrok.exe config add-authtoken $env:NGROK_AUTH_TOKEN
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+steps:  
+  - name: Enable RDP + Disable NLA  
+    run: |  
+      Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `  
+                       -Name "fDenyTSConnections" -Value 0 -Force  
+      Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `  
+                       -Name "UserAuthentication" -Value 0 -Force  
+      Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `  
+                       -Name "SecurityLayer" -Value 0 -Force  
+      netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389  
+      Restart-Service -Name TermService -Force  
 
-      - name: Iniciar túnel TCP RDP
-        run: |
-          Start-Process -NoNewWindow "$env:USERPROFILE\ngrok\ngrok.exe" "tcp 3389"
-          Start-Sleep -Seconds 10
+  - name: Create Autologin User  
+    run: |  
+      $username = "RDP"  
+      $password = "882188Adr"  
+      net user $username $password /add  
+      net localgroup administrators $username /add  
+      net localgroup "Remote Desktop Users" $username /add  
 
-      - name: Mostrar informações de conexão
-        run: |
-          $tunnel = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels"
-          $addr = $tunnel.tunnels.public_url -replace "tcp://",""
-          Write-Host "========================================"
-          Write-Host "   🔗 Copie e cole no Remote Desktop:"
-          Write-Host "   $addr"
-          Write-Host "   Usuário: runneradmin"
-          Write-Host "   Senha: $env:PASSWORD"
-          Write-Host "========================================"
-        env:
-          PASSWORD: ${{ secrets.RDP_PASSWORD }}
+      # Ativar autologin  
+      Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `  
+        -Name "AutoAdminLogon" -Value "1" -Type String  
+      Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `  
+        -Name "DefaultUserName" -Value $username -Type String  
+      Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `  
+        -Name "DefaultPassword" -Value $password -Type String  
 
-      - name: Manter sessão ativa
-        run: |
-          while ($true) { Start-Sleep -Seconds 300 }
+  - name: Install NVIDIA GPU Drivers  
+    run: |  
+      $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"  
+      $driver = "$env:TEMP\nvidia_driver.exe"  
+      Invoke-WebRequest -Uri $url -OutFile $driver  
+      Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait  
+      Remove-Item $driver -Force  
+
+  - name: Ultra Optimize Windows Performance  
+    run: |  
+      # Desativar animações, efeitos visuais e atrasos  
+      reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f  
+      Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))  
+      Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"  
+      Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"  
+      Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"  
+
+      # Desligar serviços desnecessários  
+      $services = "DiagTrack","WSearch","Spooler"  
+      foreach ($s in $services) {  
+          Stop-Service -Name $s -ErrorAction SilentlyContinue  
+          Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue  
+      }  
+
+      # Desligar efeitos da barra e transparências  
+      reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f  
+      reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f  
+
+  - name: Install Tailscale  
+    run: |  
+      $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"  
+      $installerPath = "$env:TEMP\tailscale.msi"  
+      Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath  
+      Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait  
+      Remove-Item $installerPath -Force  
+
+  - name: Establish Tailscale Connection  
+    run: |  
+      & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID  
+      $tsIP = $null  
+      for ($i=0; $i -lt 10; $i++) {  
+        $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4  
+        if ($tsIP) { break }  
+        Start-Sleep -Seconds 5  
+      }  
+      if (-not $tsIP) { throw "No Tailscale IP found" }  
+      echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV  
+
+  - name: Show Access Info  
+    run: |  
+      Write-Host "`n=== RDP ACCESS ==="  
+      Write-Host "Address: $env:TAILSCALE_IP"  
+      Write-Host "Username: RDP"  
+      Write-Host "Password: 882188Adr"  
+      Write-Host "✅ GPU driver installed"  
+      Write-Host "✅ Windows ultra optimized"  
+      Write-Host "✅ Tailscale ready"  
+      Write-Host "==================`n"  
+      while ($true) { Start-Sleep -Seconds 300 }
+
