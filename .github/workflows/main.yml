@@ -1,4 +1,4 @@
-name: RDP Hyper Optimized
+name: RDP Hyper Optimized BR
 
 on:
   workflow_dispatch:
@@ -35,6 +35,22 @@ jobs:
             -Name "DefaultUserName" -Value $username -Type String  
           Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
             -Name "DefaultPassword" -Value $password -Type String  
+
+      - name: Configure Locale and Timezone (Brazil)  
+        run: |  
+          # Definir idioma, teclado e região para PT-BR  
+          Set-WinSystemLocale -SystemLocale pt-BR  
+          Set-WinUserLanguageList -LanguageList pt-BR -Force  
+          Set-WinUILanguageOverride -Language pt-BR  
+          Set-WinCultureFromLanguageListOptOut -OptOut 0  
+
+          # Fuso horário de Brasília (GMT-3)  
+          Set-TimeZone -Id "E. South America Standard Time"  
+
+          # Configurar teclado ABNT2  
+          $LangList = New-WinUserLanguageList pt-BR  
+          $LangList[0].InputMethodTips.Add("0416:00010416")  
+          Set-WinUserLanguageList $LangList -Force  
 
       - name: Install NVIDIA GPU Drivers  
         run: |  
@@ -90,6 +106,9 @@ jobs:
           Write-Host "Address: $env:TAILSCALE_IP"  
           Write-Host "Username: RDP"  
           Write-Host "Password: 882188Adr"  
+          Write-Host "🌎 Região configurada: Brasil (pt-BR)"  
+          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"  
+          Write-Host "⌨️ Teclado: ABNT2"  
           Write-Host "✅ GPU driver installed"  
           Write-Host "✅ Windows ultra optimized"  
           Write-Host "✅ Tailscale ready"  
