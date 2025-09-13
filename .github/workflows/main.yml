@@ -41,14 +41,12 @@ jobs:
       - name: Configure Locale and Timezone (Brazil)  
         run: |  
           Set-WinSystemLocale -SystemLocale pt-BR  
-          Set-WinUserLanguageList -LanguageList pt-BR -Force  
           Set-WinUILanguageOverride -Language pt-BR  
           Set-WinCultureFromLanguageListOptOut -OptOut 0  
-
           Set-TimeZone -Id "E. South America Standard Time"  
 
           $LangList = New-WinUserLanguageList pt-BR  
-          $LangList[0].InputMethodTips.Add("0416:00010416")  
+          $LangList[0].InputMethodTips.Add("0416:00010416")  # ABNT2  
           Set-WinUserLanguageList $LangList -Force  
 
       - name: Install NVIDIA GPU Drivers  
