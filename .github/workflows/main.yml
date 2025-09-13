@@ -1,112 +1,53 @@
-name: RDP Hyper Optimized BR (Win10 Base)
+name: RDP
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 */6 * * *"  # reinicia a cada 6h
 
 jobs:
   secure-rdp:
-    runs-on: windows-2022
-    timeout-minutes: 360
+    runs-on: windows-latest
+    timeout-minutes: 3600
 
-    steps:  
-      - name: Enable RDP + Disable NLA  
-        run: |  
+    steps:
+      - name: Enable RDP + Disable NLA
+        run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 0 -Force  
+                           -Name "fDenyTSConnections" -Value 0
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "UserAuthentication" -Value 0 -Force  
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "SecurityLayer" -Value 0 -Force  
-          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389  
-          Restart-Service -Name TermService -Force  
+                           -Name "UserAuthentication" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-      - name: Create Autologin User  
-        run: |  
-          $username = "RDP"  
-          $password = "882188Adr"  
-          net user $username $password /add  
-          net localgroup administrators $username /add  
-          net localgroup "Remote Desktop Users" $username /add  
+      - name: Create Autologin User
+        run: |
+          $username = "RDP"
+          $password = "882188Adriel"
+          net user $username $password /add
+          net localgroup administrators $username /add
+          reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 1 /f
+          reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUsername /t REG_SZ /d $username /f
+          reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /t REG_SZ /d $password /f
 
-          # Ativar autologin  
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "AutoAdminLogon" -Value "1" -Type String  
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultUserName" -Value $username -Type String  
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultPassword" -Value $password -Type String  
+      - name: Install NVIDIA GPU Drivers
+        run: |
+          Invoke-WebRequest -Uri https://us.download.nvidia.com/Windows/Quadro_Certified/537.13/537.13-quadro-rtx-desktop-notebook-win10-win11-64bit-international-dch-whql.exe -OutFile driver.exe
+          Start-Process .\driver.exe -ArgumentList "/s" -Wait
 
-      - name: Configure Locale and Timezone (Brazil)  
-        run: |  
-          Set-WinSystemLocale -SystemLocale pt-BR  
-          Set-WinUILanguageOverride -Language pt-BR  
-          Set-WinCultureFromLanguageListOptOut -OptOut 0  
-          Set-TimeZone -Id "E. South America Standard Time"  
+      - name: Ultra Optimize Windows Performance
+        run: |
+          powercfg -setactive SCHEME_MIN
+          bcdedit /set useplatformclock true
+          bcdedit /set disabledynamictick yes
+          bcdedit /set tscsyncpolicy Enhanced
 
-          $LangList = New-WinUserLanguageList pt-BR  
-          $LangList[0].InputMethodTips.Add("0416:00010416")  # ABNT2  
-          Set-WinUserLanguageList $LangList -Force  
+      - name: Install Tailscale
+        run: |
+          Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe -OutFile tailscale.exe
+          Start-Process .\tailscale.exe -ArgumentList "/quiet" -Wait
 
-      - name: Install NVIDIA GPU Drivers  
-        run: |  
-          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"  
-          $driver = "$env:TEMP\nvidia_driver.exe"  
-          Invoke-WebRequest -Uri $url -OutFile $driver  
-          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait  
-          Remove-Item $driver -Force  
+      - name: Establish Tailscale Connection
+        run: |
+          Start-Process "C:\Program Files\Tailscale\tailscale.exe" -ArgumentList "up --authkey %TAILSCALE_AUTHKEY% --hostname=github-rdp" -Wait
 
-      - name: Ultra Optimize Windows Performance  
-        run: |  
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f  
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))  
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"  
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"  
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"  
-
-          $services = "DiagTrack","WSearch","Spooler"  
-          foreach ($s in $services) {  
-              Stop-Service -Name $s -ErrorAction SilentlyContinue  
-              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue  
-          }  
-
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f  
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f  
-
-      - name: Install Tailscale  
-        run: |  
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"  
-          $installerPath = "$env:TEMP\tailscale.msi"  
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath  
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait  
-          Remove-Item $installerPath -Force  
-
-      - name: Establish Tailscale Connection  
-        run: |  
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID  
-          $tsIP = $null  
-          for ($i=0; $i -lt 10; $i++) {  
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4  
-            if ($tsIP) { break }  
-            Start-Sleep -Seconds 5  
-          }  
-          if (-not $tsIP) { throw "No Tailscale IP found" }  
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV  
-
-      - name: Show Access Info  
-        run: |  
-          Write-Host "`n=== RDP ACCESS ==="  
-          Write-Host "Address: $env:TAILSCALE_IP"  
-          Write-Host "Username: RDP"  
-          Write-Host "Password: 882188Adr"  
-          Write-Host "🌎 Região: Brasil (pt-BR)"  
-          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"  
-          Write-Host "⌨️ Teclado: ABNT2"  
-          Write-Host "✅ GPU driver installed"  
-          Write-Host "✅ Windows ultra optimized"  
-          Write-Host "✅ Tailscale ready"  
-          Write-Host "==================`n"  
-
-          # Manter workflow vivo até o timeout
-          while ($true) { Start-Sleep -Seconds 300 }
+      - name: Show Access Info
+        run: |
+          Write-Output "Conecte via Tailscale para acessar a VM"
