@@ -1,12 +1,14 @@
-name: RDP Hyper Optimized BR
+name: RDP Hyper Optimized BR (Win10 Base)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"  # reinicia a cada 6h
 
 jobs:
   secure-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 3600
+    runs-on: windows-2019
+    timeout-minutes: 360
 
     steps:  
       - name: Enable RDP + Disable NLA  
@@ -38,16 +40,13 @@ jobs:
 
       - name: Configure Locale and Timezone (Brazil)  
         run: |  
-          # Definir idioma, teclado e região para PT-BR  
           Set-WinSystemLocale -SystemLocale pt-BR  
           Set-WinUserLanguageList -LanguageList pt-BR -Force  
           Set-WinUILanguageOverride -Language pt-BR  
           Set-WinCultureFromLanguageListOptOut -OptOut 0  
 
-          # Fuso horário de Brasília (GMT-3)  
           Set-TimeZone -Id "E. South America Standard Time"  
 
-          # Configurar teclado ABNT2  
           $LangList = New-WinUserLanguageList pt-BR  
           $LangList[0].InputMethodTips.Add("0416:00010416")  
           Set-WinUserLanguageList $LangList -Force  
@@ -62,21 +61,18 @@ jobs:
 
       - name: Ultra Optimize Windows Performance  
         run: |  
-          # Desativar animações, efeitos visuais e atrasos  
           reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f  
           Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))  
           Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"  
           Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"  
           Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"  
 
-          # Desligar serviços desnecessários  
           $services = "DiagTrack","WSearch","Spooler"  
           foreach ($s in $services) {  
               Stop-Service -Name $s -ErrorAction SilentlyContinue  
               Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue  
           }  
 
-          # Desligar efeitos da barra e transparências  
           reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f  
           reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f  
 
@@ -106,11 +102,13 @@ jobs:
           Write-Host "Address: $env:TAILSCALE_IP"  
           Write-Host "Username: RDP"  
           Write-Host "Password: 882188Adr"  
-          Write-Host "🌎 Região configurada: Brasil (pt-BR)"  
+          Write-Host "🌎 Região: Brasil (pt-BR)"  
           Write-Host "⏰ Fuso horário: Brasília (GMT-3)"  
           Write-Host "⌨️ Teclado: ABNT2"  
           Write-Host "✅ GPU driver installed"  
           Write-Host "✅ Windows ultra optimized"  
           Write-Host "✅ Tailscale ready"  
           Write-Host "==================`n"  
+
+          # Manter workflow vivo até o timeout
           while ($true) { Start-Sleep -Seconds 300 }
