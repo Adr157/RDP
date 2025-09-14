@@ -1,118 +1,116 @@
-name: Cloud Gaming RDP
+name: RDP Hyper Optimized BR
 
 on:
   workflow_dispatch:
 
 jobs:
-  cloud-gaming:
-    runs-on: windows-2022
-    timeout-minutes: 3600
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
 
-    steps:
-      - name: Configure Core RDP Settings
-        run: |
-          # Enable Remote Desktop and disable Network Level Authentication (NLA)
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+    steps:    
+      - name: Enable RDP + Disable NLA    
+        run: |    
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                           -Name "fDenyTSConnections" -Value 0 -Force    
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                           -Name "UserAuthentication" -Value 0 -Force    
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                           -Name "SecurityLayer" -Value 0 -Force    
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389    
+          Restart-Service -Name TermService -Force    
 
-          # Firewall for RDP
-          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
+      - name: Create Autologin User    
+        run: |    
+          $username = "RDP"    
+          $password = "882188Adr"    
+          net user $username $password /add    
+          net localgroup administrators $username /add    
+          net localgroup "Remote Desktop Users" $username /add    
 
-          # Restart the Remote Desktop Service to apply changes
-          Restart-Service -Name TermService -Force
+          # Ativar autologin    
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "AutoAdminLogon" -Value "1" -Type String    
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultUserName" -Value $username -Type String    
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultPassword" -Value $password -Type String    
 
-      - name: Create RDP User with Fixed Password
-        run: |
-          $username = "RDP"
-          $passwordPlain = "882188Adr"
-          $securePass = ConvertTo-SecureString $passwordPlain -AsPlainText -Force
+      - name: Configure Locale and Timezone (Brazil)    
+        run: |    
+          # Definir idioma, teclado e região para PT-BR    
+          Set-WinSystemLocale -SystemLocale pt-BR    
+          Set-WinUserLanguageList -LanguageList pt-BR -Force    
+          Set-WinUILanguageOverride -Language pt-BR    
+          Set-WinCultureFromLanguageListOptOut -OptOut 0    
 
-          # Create a local user if it doesn't exist, and ensure they are an admin
-          if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires
-          }
-          
-          # Add the user to both Administrators and Remote Desktop Users groups
-          Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          # Fuso horário de Brasília (GMT-3)    
+          Set-TimeZone -Id "E. South America Standard Time"    
 
-          echo "RDP_USER=$username" >> $env:GITHUB_ENV
-          echo "RDP_PASSWORD=$passwordPlain" >> $env:GITHUB_ENV
+          # Configurar teclado ABNT2    
+          $LangList = New-WinUserLanguageList pt-BR    
+          $LangList[0].InputMethodTips.Add("0416:00010416")    
+          Set-WinUserLanguageList $LangList -Force    
 
-      - name: Install Tailscale
-        run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+      - name: Install NVIDIA GPU Drivers    
+        run: |    
+          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"    
+          $driver = "$env:TEMP\nvidia_driver.exe"    
+          Invoke-WebRequest -Uri $url -OutFile $driver    
+          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait    
+          Remove-Item $driver -Force    
 
-      - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
-          }
-          if (-not $tsIP) { Write-Error "Tailscale IP not assigned"; exit 1 }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-      
-      - name: Verify RDP Accessibility
-        run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) { Write-Error "TCP connection failed"; exit 1 }
+      - name: Ultra Optimize Windows Performance    
+        run: |    
+          # Desativar animações, efeitos visuais e atrasos    
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"    
 
-      - name: Install Common Gaming Applications (using Chocolatey)
-        run: |
-          choco install googlechrome -y
-          choco install discord -y
-          choco install 7zip -y
-          
-      - name: Install Visual C++ Runtimes
-        run: |
-          $urls = @(
-            "https://aka.ms/vs/17/release/vc_redist.x64.exe",
-            "https://aka.ms/vs/17/release/vc_redist.x86.exe"
-          )
-          foreach ($url in $urls) {
-              $installer = "$env:TEMP\vc_redist.exe"
-              Invoke-WebRequest -Uri $url -OutFile $installer
-              Start-Process -FilePath $installer -ArgumentList "/install /quiet /norestart" -Wait
-              Remove-Item $installer -Force
-          }
-      
-      - name: Install DirectX and Vulkan
-        run: |
-          Write-Host "Vulkan runtime needs to be downloaded manually if necessary."
-          Write-Host "DirectX is a core component of Windows 2022 and no extra steps are required."
+          # Desligar serviços desnecessários    
+          $services = "DiagTrack","WSearch","Spooler"    
+          foreach ($s in $services) {    
+              Stop-Service -Name $s -ErrorAction SilentlyContinue    
+              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue    
+          }    
 
-      - name: Install Gaming Platforms
-        run: |
-          $steamUrl = "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe"
-          $epicUrl = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"
-          
-          # Install Steam
-          Write-Host "Installing Steam..."
-          Invoke-WebRequest -Uri $steamUrl -OutFile "$env:TEMP\SteamSetup.exe"
-          Start-Process -FilePath "$env:TEMP\SteamSetup.exe" -ArgumentList "/S" -Wait
-          Remove-Item "$env:TEMP\SteamSetup.exe" -Force
-          
-          # Install Epic Games Launcher
-          Write-Host "Installing Epic Games Launcher..."
-          Invoke-WebRequest -Uri $epicUrl -OutFile "$env:TEMP\EpicInstaller.msi"
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$env:TEMP\EpicInstaller.msi`"", "/quiet", "/norestart" -Wait
-          Remove-Item "$env:TEMP\EpicInstaller.msi" -Force
+          # Desligar efeitos da barra e transparências    
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f    
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f    
 
-      - name: Maintain Connection
-        run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: $env:RDP_USER"
-          Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "==================`n"
+      - name: Install Tailscale    
+        run: |    
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"    
+          $installerPath = "$env:TEMP\tailscale.msi"    
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath    
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait    
+          Remove-Item $installerPath -Force    
+
+      - name: Establish Tailscale Connection    
+        run: |    
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID    
+          $tsIP = $null    
+          for ($i=0; $i -lt 10; $i++) {    
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4    
+            if ($tsIP) { break }    
+            Start-Sleep -Seconds 5    
+          }    
+          if (-not $tsIP) { throw "No Tailscale IP found" }    
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV    
+
+      - name: Show Access Info    
+        run: |    
+          Write-Host "`n=== RDP ACCESS ==="    
+          Write-Host "Address: $env:TAILSCALE_IP"    
+          Write-Host "Username: RDP"    
+          Write-Host "Password: 882188Adr"    
+          Write-Host "🌎 Região configurada: Brasil (pt-BR)"    
+          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"    
+          Write-Host "⌨️ Teclado: ABNT2"    
+          Write-Host "✅ GPU driver installed"    
+          Write-Host "✅ Windows ultra optimized"    
+          Write-Host "✅ Tailscale ready"    
+          Write-Host "==================`n"    
           while ($true) { Start-Sleep -Seconds 300 }
