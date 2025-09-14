@@ -12,15 +12,9 @@ jobs:
       - name: Configure Core RDP Settings
         run: |
           # Enable Remote Desktop and disable Network Level Authentication (NLA)
-          # These are standard paths and should always exist.
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-
-          # Note: The TSAppCompat registry key for hardware acceleration is not
-          # standard on Windows Server 2022 and can cause the workflow to fail.
-          # We've removed it to ensure the script runs smoothly. The default
-          # settings on the Windows 2022 runner are usually sufficient for gaming.
 
           # Firewall for RDP
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
@@ -73,12 +67,11 @@ jobs:
           $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
           if (-not $testResult.TcpTestSucceeded) { Write-Error "TCP connection failed"; exit 1 }
 
-      - name: Install Common Gaming Applications
+      - name: Install Common Gaming Applications (using Chocolatey)
         run: |
-          # Install using winget for a cleaner and more reliable process
-          winget install --id "Google.Chrome" -e --accept-package-agreements --accept-source-agreements
-          winget install --id "Discord.Discord" -e --accept-package-agreements --accept-source-agreements
-          winget install --id "7zip.7zip" -e --accept-package-agreements --accept-source-agreements
+          choco install googlechrome -y
+          choco install discord -y
+          choco install 7zip -y
           
       - name: Install Visual C++ Runtimes
         run: |
@@ -95,11 +88,7 @@ jobs:
       
       - name: Install DirectX and Vulkan
         run: |
-          # Vulkan needs to be downloaded manually, as there's no official silent installer
           Write-Host "Vulkan runtime needs to be downloaded manually if necessary."
-          
-          # DirectX is already a part of Windows Server 2022
-          # The redistributable package is for older versions of Windows.
           Write-Host "DirectX is a core component of Windows 2022 and no extra steps are required."
 
       - name: Install Gaming Platforms
