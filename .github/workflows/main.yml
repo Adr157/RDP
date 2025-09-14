@@ -11,22 +11,21 @@ jobs:
     steps:
       - name: Configure Core RDP Settings
         run: |
-          # Enable Remote Desktop and disable Network Level Authentication
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                             -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 0 -Force
+          # Enable Remote Desktop and disable Network Level Authentication (NLA)
+          # These are standard paths and should always exist.
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
 
-          # Enable graphics acceleration for RDP
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\TSAppCompat' `
-                             -Name "fEnableHardwareAcceleration" -Value 1 -Force
+          # Note: The TSAppCompat registry key for hardware acceleration is not
+          # standard on Windows Server 2022 and can cause the workflow to fail.
+          # We've removed it to ensure the script runs smoothly. The default
+          # settings on the Windows 2022 runner are usually sufficient for gaming.
 
           # Firewall for RDP
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
 
+          # Restart the Remote Desktop Service to apply changes
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Fixed Password
@@ -35,15 +34,14 @@ jobs:
           $passwordPlain = "882188Adr"
           $securePass = ConvertTo-SecureString $passwordPlain -AsPlainText -Force
 
+          # Create a local user if it doesn't exist, and ensure they are an admin
           if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires
-          } else {
-              $user = Get-LocalUser -Name $username
-              $user | Set-LocalUser -Password $securePass
           }
-
-          Add-LocalGroupMember -Group "Administrators" -Member $username -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username -ErrorAction SilentlyContinue
+          
+          # Add the user to both Administrators and Remote Desktop Users groups
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
 
           echo "RDP_USER=$username" >> $env:GITHUB_ENV
           echo "RDP_PASSWORD=$passwordPlain" >> $env:GITHUB_ENV
@@ -68,53 +66,21 @@ jobs:
           }
           if (-not $tsIP) { Write-Error "Tailscale IP not assigned"; exit 1 }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-
+      
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
           $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
           if (-not $testResult.TcpTestSucceeded) { Write-Error "TCP connection failed"; exit 1 }
 
-      - name: Install Discord
+      - name: Install Common Gaming Applications
         run: |
-          $url = "https://discord.com/api/download?platform=win"
-          $installer = "$env:TEMP\DiscordSetup.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "/S" -Wait
-          Remove-Item $installer -Force
-
-      - name: Install Chrome
-        run: |
-          $url = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
-          $installer = "$env:TEMP\ChromeSetup.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "/silent /install" -Wait
-          Remove-Item $installer -Force
-
-      - name: Install 7-Zip
-        run: |
-          $url = "https://www.7-zip.org/a/7z2301-x64.exe"
-          $installer = "$env:TEMP\7zip.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "/S" -Wait
-          Remove-Item $installer -Force
-
-      - name: Install DirectX End-User Runtime
-        run: |
-          $dxUrl = "https://download.microsoft.com/download/1/1/C/11C0E6C2-2904-4C57-8DAD-94F758DC6D3F/directx_Jun2010_redist.exe"
-          $installer = "$env:TEMP\dx_redist.exe"
-          Invoke-WebRequest -Uri $dxUrl -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "/Q /T:$env:TEMP\DXSetup" -Wait
-          Start-Process -FilePath "$env:TEMP\DXSetup/DXSETUP.exe" -ArgumentList "/silent" -Wait
-          Remove-Item $installer -Force
-          Remove-Item "$env:TEMP\DXSetup" -Recurse -Force
-
-      - name: Install Vulkan Runtime
-        run: |
-          $url = "https://vulkan.lunarg.com/sdk/home"
-          Write-Host "Vulkan runtime precisa ser baixado manualmente via link oficial se necessÃ¡rio."
-
-      - name: Install Visual C++ Redistributables
+          # Install using winget for a cleaner and more reliable process
+          winget install --id "Google.Chrome" -e --accept-package-agreements --accept-source-agreements
+          winget install --id "Discord.Discord" -e --accept-package-agreements --accept-source-agreements
+          winget install --id "7zip.7zip" -e --accept-package-agreements --accept-source-agreements
+          
+      - name: Install Visual C++ Runtimes
         run: |
           $urls = @(
             "https://aka.ms/vs/17/release/vc_redist.x64.exe",
@@ -126,22 +92,32 @@ jobs:
               Start-Process -FilePath $installer -ArgumentList "/install /quiet /norestart" -Wait
               Remove-Item $installer -Force
           }
-
-      - name: Install Steam
+      
+      - name: Install DirectX and Vulkan
         run: |
-          $url = "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe"
-          $installer = "$env:TEMP\SteamSetup.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "/S" -Wait
-          Remove-Item $installer -Force
+          # Vulkan needs to be downloaded manually, as there's no official silent installer
+          Write-Host "Vulkan runtime needs to be downloaded manually if necessary."
+          
+          # DirectX is already a part of Windows Server 2022
+          # The redistributable package is for older versions of Windows.
+          Write-Host "DirectX is a core component of Windows 2022 and no extra steps are required."
 
-      - name: Install Epic Games Launcher
+      - name: Install Gaming Platforms
         run: |
-          $url = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"
-          $installer = "$env:TEMP\EpicInstaller.msi"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installer -Force
+          $steamUrl = "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe"
+          $epicUrl = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"
+          
+          # Install Steam
+          Write-Host "Installing Steam..."
+          Invoke-WebRequest -Uri $steamUrl -OutFile "$env:TEMP\SteamSetup.exe"
+          Start-Process -FilePath "$env:TEMP\SteamSetup.exe" -ArgumentList "/S" -Wait
+          Remove-Item "$env:TEMP\SteamSetup.exe" -Force
+          
+          # Install Epic Games Launcher
+          Write-Host "Installing Epic Games Launcher..."
+          Invoke-WebRequest -Uri $epicUrl -OutFile "$env:TEMP\EpicInstaller.msi"
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$env:TEMP\EpicInstaller.msi`"", "/quiet", "/norestart" -Wait
+          Remove-Item "$env:TEMP\EpicInstaller.msi" -Force
 
       - name: Maintain Connection
         run: |
