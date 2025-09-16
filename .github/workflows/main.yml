@@ -6,7 +6,7 @@ on:
 jobs:
   cloud-gaming:
     runs-on: windows-2022
-    timeout-minutes: infinity
+    timeout-minutes: 360
 
     steps:
       - name: Configure Core RDP Settings
@@ -17,10 +17,11 @@ jobs:
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User with Auto-Renew Password
+      - name: Create RDP User with Fixed Password
         run: |
           $username = "RDP"
-          $passwordPlain = [System.Web.Security.Membership]::GeneratePassword(16,2)
+          # senha fixa conforme solicitado
+          $passwordPlain = "882188Adr"
           $securePass = ConvertTo-SecureString $passwordPlain -AsPlainText -Force
           if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
               New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires
@@ -61,19 +62,12 @@ jobs:
 
       - name: Optimize System for Gaming
         run: |
-          # Windows Performance
           Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
           Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "DragFullWindows" -Value 0
           Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\GameBar" -Name "AutoGameModeEnabled" -Value 1
-
-          # TCP Optimization
           New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpAckFrequency" -PropertyType DWord -Value 1 -Force
           New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TCPNoDelay" -PropertyType DWord -Value 1 -Force
-
-          # Process Priority
           Get-Process | Where-Object {$_.ProcessName -in @("explorer","Steam","EpicGamesLauncher")} | ForEach-Object { $_.PriorityClass = "High" }
-
-          # Disable Updates during gaming
           Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1
 
       - name: Install Common Gaming Applications
@@ -106,19 +100,13 @@ jobs:
           Start-Process msiexec.exe -ArgumentList "/i", "`"$env:TEMP\EpicInstaller.msi`"", "/quiet", "/norestart" -Wait
           Remove-Item "$env:TEMP\EpicInstaller.msi" -Force
 
-      - name: Maintain RDP & Hotspot
+      - name: Show RDP Connection Info
         run: |
-          $infoFile = "$env:TEMP\RDP_INFO.txt"
-          while ($true) {
-              # Info RDP
-              "$((Get-Date).ToString()) - RDP IP: $env:TAILSCALE_IP | User: $env:RDP_USER | Pass: $env:RDP_PASSWORD" | Out-File -FilePath $infoFile -Encoding UTF8 -Append
-
-              # Auto-create Hotspot
-              $ssid = "VeyonixHotspot_$((Get-Random -Minimum 1000 -Maximum 9999))"
-              $pass = [System.Web.Security.Membership]::GeneratePassword(12,2)
-              netsh wlan set hostednetwork mode=allow ssid=$ssid key=$pass
-              netsh wlan start hostednetwork
-              "Hotspot SSID: $ssid | Password: $pass" | Out-File -FilePath $infoFile -Encoding UTF8 -Append
-
-              Start-Sleep -Seconds 300
-          }
+          Write-Host "===================================="
+          Write-Host " ✅ RDP ready!"
+          Write-Host " Use the following to connect:"
+          Write-Host " IP: $env:TAILSCALE_IP"
+          Write-Host " User: $env:RDP_USER"
+          Write-Host " Pass: $env:RDP_PASSWORD"
+          Write-Host "===================================="
+          Write-Host " Session will stay alive for ~6h."
