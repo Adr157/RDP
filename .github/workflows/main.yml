@@ -5,7 +5,7 @@ on: workflow_dispatch
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 360   # Máximo permitido, em vez de "infinity"
+    timeout-minutes: 360   # 6 horas no máximo
 
     steps:
     - name: Configure Core RDP Settings
@@ -13,7 +13,7 @@ jobs:
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0 -Force
         Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
         Set-Service -Name TermService -StartupType Automatic
-        Restart-Service -Name TermService
+        Write-Host "✅ RDP Enabled (no restart needed)"
 
     - name: Create RDP User with Fixed Password
       run: |
