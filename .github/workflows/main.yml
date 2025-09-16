@@ -120,5 +120,5 @@ jobs:
               netsh wlan start hostednetwork
               "Hotspot SSID: $ssid | Password: $pass" | Out-File -FilePath $infoFile -Encoding UTF8 -Append
 
-              Start-Sleep -Seconds infinity
+              Start-Sleep -Seconds 300
           }
