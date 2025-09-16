@@ -1,112 +1,99 @@
-name: Cloud Gaming RDP EXTREME
+name: cloud-gaming
 
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
-  cloud-gaming:
+  build:
     runs-on: windows-2022
-    timeout-minutes: 360
+    timeout-minutes: 360   # Máximo permitido, em vez de "infinity"
 
     steps:
-      - name: Configure Core RDP Settings
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
+    - name: Configure Core RDP Settings
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0 -Force
+        Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
+        Set-Service -Name TermService -StartupType Automatic
+        Restart-Service -Name TermService
 
-      - name: Create RDP User with Fixed Password
-        run: |
-          $username = "RDP"
-          # senha fixa conforme solicitado
-          $passwordPlain = "882188Adr"
-          $securePass = ConvertTo-SecureString $passwordPlain -AsPlainText -Force
-          if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
-              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires
-          } else {
-              Set-LocalUser -Name $username -Password $securePass
+    - name: Create RDP User with Fixed Password
+      run: |
+        $Username = "RDP"
+        $Password = "882188Adr" | ConvertTo-SecureString -AsPlainText -Force
+        if (-not (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue)) {
+          New-LocalUser $Username -Password $Password -FullName "RDP User" -Description "Cloud Gaming User"
+        } else {
+          Set-LocalUser -Name $Username -Password $Password
+        }
+        Add-LocalGroupMember -Group "Administrators" -Member $Username
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username
+        Write-Host "RDP User: $Username"
+        Write-Host "Password: 882188Adr"
+
+    - name: Install Tailscale
+      run: |
+        $Url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+        $Out = "$env:TEMP\tailscale.msi"
+        Invoke-WebRequest -Uri $Url -OutFile $Out
+        Start-Process msiexec.exe -Wait -ArgumentList "/i `"$Out`" /quiet /qn /norestart"
+
+    - name: Establish Tailscale Connection
+      run: |
+        & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${{ github.run_id }}
+
+    - name: Verify RDP Accessibility
+      run: |
+        $tailscaleIP = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4).Trim()
+        Write-Host "Tailscale IP: $tailscaleIP"
+
+    - name: Optimize System for Gaming
+      run: |
+        # Ajuste visual para performance
+        Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+
+        # Ativar Game Mode se chave existir
+        if (Test-Path "HKLM:\SOFTWARE\Microsoft\GameBar") {
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\GameBar" -Name "AutoGameModeEnabled" -Value 1 -Force
+          Write-Host "Game Mode enabled."
+        } else {
+          Write-Host "GameBar not found, skipping Game Mode tweak."
+        }
+
+        # Tweaks TCP para reduzir latência
+        netsh int tcp set global autotuninglevel=normal
+        netsh int tcp set global rss=enabled
+        netsh int tcp set global ecncapability=enabled
+        netsh int tcp set global dca=enabled
+
+        # Prioridade para apps comuns de jogo
+        $procs = "explorer","Steam","EpicGamesLauncher"
+        foreach ($p in $procs) {
+          if (Get-Process -Name $p -ErrorAction SilentlyContinue) {
+            (Get-Process -Name $p).PriorityClass = "High"
           }
-          Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
-          echo "RDP_USER=$username" >> $env:GITHUB_ENV
-          echo "RDP_PASSWORD=$passwordPlain" >> $env:GITHUB_ENV
+        }
 
-      - name: Install Tailscale
-        run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+        # Desativar updates automáticos
+        Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
+        Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
 
-      - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
-          }
-          if (-not $tsIP) { Write-Error "Tailscale IP not assigned"; exit 1 }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+    - name: Install Common Gaming Applications
+      run: |
+        choco install googlechrome discord 7zip -y
 
-      - name: Verify RDP Accessibility
-        run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) { Write-Error "TCP connection failed"; exit 1 }
+    - name: Install Visual C++ Runtimes
+      run: |
+        choco install vcredist-all -y
 
-      - name: Optimize System for Gaming
-        run: |
-          Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
-          Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "DragFullWindows" -Value 0
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\GameBar" -Name "AutoGameModeEnabled" -Value 1
-          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TcpAckFrequency" -PropertyType DWord -Value 1 -Force
-          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" -Name "TCPNoDelay" -PropertyType DWord -Value 1 -Force
-          Get-Process | Where-Object {$_.ProcessName -in @("explorer","Steam","EpicGamesLauncher")} | ForEach-Object { $_.PriorityClass = "High" }
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -Value 1
+    - name: Install Gaming Platforms
+      run: |
+        choco install steam epicgameslauncher -y
 
-      - name: Install Common Gaming Applications
-        run: |
-          choco install googlechrome -y
-          choco install discord -y
-          choco install 7zip -y
-
-      - name: Install Visual C++ Runtimes
-        run: |
-          $urls = @(
-            "https://aka.ms/vs/17/release/vc_redist.x64.exe",
-            "https://aka.ms/vs/17/release/vc_redist.x86.exe"
-          )
-          foreach ($url in $urls) {
-              $installer = "$env:TEMP\vc_redist.exe"
-              Invoke-WebRequest -Uri $url -OutFile $installer
-              Start-Process -FilePath $installer -ArgumentList "/install /quiet /norestart" -Wait
-              Remove-Item $installer -Force
-          }
-
-      - name: Install Gaming Platforms
-        run: |
-          $steamUrl = "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe"
-          $epicUrl = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"
-          Invoke-WebRequest -Uri $steamUrl -OutFile "$env:TEMP\SteamSetup.exe"
-          Start-Process -FilePath "$env:TEMP\SteamSetup.exe" -ArgumentList "/S" -Wait
-          Remove-Item "$env:TEMP\SteamSetup.exe" -Force
-          Invoke-WebRequest -Uri $epicUrl -OutFile "$env:TEMP\EpicInstaller.msi"
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$env:TEMP\EpicInstaller.msi`"", "/quiet", "/norestart" -Wait
-          Remove-Item "$env:TEMP\EpicInstaller.msi" -Force
-
-      - name: Show RDP Connection Info
-        run: |
-          Write-Host "===================================="
-          Write-Host " ✅ RDP ready!"
-          Write-Host " Use the following to connect:"
-          Write-Host " IP: $env:TAILSCALE_IP"
-          Write-Host " User: $env:RDP_USER"
-          Write-Host " Pass: $env:RDP_PASSWORD"
-          Write-Host "===================================="
-          Write-Host " Session will stay alive for ~6h."
+    - name: Show RDP Connection Info
+      run: |
+        $tailscaleIP = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4).Trim()
+        Write-Host "======================================="
+        Write-Host "✅ RDP Setup Complete!"
+        Write-Host "➡️ IP: $tailscaleIP"
+        Write-Host "➡️ User: RDP"
+        Write-Host "➡️ Password: 882188Adr"
+        Write-Host "======================================="
