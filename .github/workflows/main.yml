@@ -6,7 +6,7 @@ on:
 jobs:
   cloud-gaming:
     runs-on: windows-2022
-    timeout-minutes: infinity
+    timeout-minutes: 3600
 
     steps:
       - name: Configure Core RDP Settings
