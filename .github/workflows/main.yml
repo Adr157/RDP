@@ -100,7 +100,11 @@ jobs:
 
     - name: Create Access Point System for RDP User
       run: |
-        $scriptContent = @"
+        # Criar diretório do usuário RDP se não existir
+        New-Item -ItemType Directory -Force -Path "C:\Users\RDP\AppData\Local\Temp"
+        
+        # Script para criar ponto de acesso
+        $scriptContent = @'
         `$sleepTime = 120  # 2 minutos
         while (`$true) {
             try {
@@ -115,13 +119,12 @@ jobs:
             }
             Start-Sleep -Seconds `$sleepTime
         }
-"@
-        # Criar script na pasta do usuário RDP
-        $userPath = "C:\Users\RDP\AppData\Local\Temp\access_point.ps1"
-        $scriptContent | Out-File -FilePath $userPath -Encoding utf8
+'@
+        # Salvar script
+        $scriptContent | Out-File -FilePath "C:\Users\RDP\AppData\Local\Temp\access_point.ps1" -Encoding utf8
         
-        # Criar tarefa agendada para executar como usuário RDP
-        $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-WindowStyle Hidden -File `"$userPath`""
+        # Criar tarefa agendada
+        $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-WindowStyle Hidden -File `"C:\Users\RDP\AppData\Local\Temp\access_point.ps1`""
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
         Register-ScheduledTask -TaskName "RDPAccessPoint" -Action $action -Trigger $trigger -Settings $settings -User "RDP" -Password "882188Adr" -RunLevel Highest -Force
