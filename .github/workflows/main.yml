@@ -8,165 +8,119 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
 
-    steps:    
-      - name: Enable RDP + Disable NLA    
-        run: |    
+    env:
+      RDP_USER: RDP
+      RDP_PASS: ${{ secrets.RDP_PASSWORD }}
+      TAILSCALE_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+    steps:
+      - name: Enable RDP + Disable NLA
+        shell: powershell
+        run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 0 -Force    
+                           -Name "fDenyTSConnections" -Value 0
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "UserAuthentication" -Value 0 -Force    
+                           -Name "UserAuthentication" -Value 0
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "SecurityLayer" -Value 0 -Force    
-          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389    
-          Restart-Service -Name TermService -Force    
+                           -Name "SecurityLayer" -Value 0
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
+          Restart-Service -Name TermService -Force
 
-      - name: Create RDP User    
-        run: |    
-          $username = "RDP"    
-          $password = "882188Adr"    
-          net user $username $password /add /Y    
-          net localgroup administrators $username /add    
-          net localgroup "Remote Desktop Users" $username /add    
+      - name: Create RDP User
+        shell: powershell
+        run: |
+          net user $env:RDP_USER $env:RDP_PASS /add
+          net localgroup administrators $env:RDP_USER /add
+          net localgroup "Remote Desktop Users" $env:RDP_USER /add
 
-          # Configurar autologin para usuário RDP
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "AutoAdminLogon" -Value "1" -Type String    
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultUserName" -Value $username -Type String    
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultPassword" -Value $password -Type String    
+          # Configurar autologin
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "1"
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultUserName" -Value $env:RDP_USER
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultPassword" -Value $env:RDP_PASS
 
-      - name: Configure Locale and Timezone (Brazil)    
-        run: |    
-          Set-WinSystemLocale -SystemLocale pt-BR    
-          Set-WinUserLanguageList -LanguageList pt-BR -Force    
-          Set-WinHomeLocation -GeoId 0x1A    
-          Set-WinUILanguageOverride -Language pt-BR    
-          Set-Culture -CultureInfo pt-BR    
-          Set-TimeZone -Id "E. South America Standard Time"    
-          $LangList = New-WinUserLanguageList pt-BR    
-          $LangList[0].InputMethodTips.Add("0416:00010416")    
-          Set-WinUserLanguageList $LangList -Force    
+      - name: Configure Locale and Timezone (Brazil)
+        shell: powershell
+        run: |
+          Set-WinSystemLocale -SystemLocale pt-BR
+          Set-WinUserLanguageList -LanguageList pt-BR -Force
+          Set-WinHomeLocation -GeoId 0x1A
+          Set-WinUILanguageOverride -Language pt-BR
+          Set-Culture -CultureInfo pt-BR
+          Set-TimeZone -Id "E. South America Standard Time"
+          $LangList = New-WinUserLanguageList pt-BR
+          $LangList[0].InputMethodTips.Add("0416:00010416")
+          Set-WinUserLanguageList $LangList -Force
 
       - name: Install Visual Studio Code
+        shell: powershell
         run: |
-          $vscodeUrl = "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64"
-          $installerPath = "$env:TEMP\vscode.exe"
-          Invoke-WebRequest -Uri $vscodeUrl -OutFile $installerPath
-          Start-Process -FilePath $installerPath -ArgumentList "/SILENT", "/MERGETASKS=!runcode", "/NORESTART" -Wait
-          Start-Sleep -Seconds 10
-          Remove-Item $installerPath -Force
+          winget install --id Microsoft.VisualStudioCode -e --accept-source-agreements --accept-package-agreements
 
-      - name: Install NVIDIA GPU Drivers    
-        run: |    
-          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"    
-          $driver = "$env:TEMP\nvidia_driver.exe"    
-          Invoke-WebRequest -Uri $url -OutFile $driver    
-          Start-Process -FilePath $driver -ArgumentList "-s", "-noreboot" -Wait    
-          Remove-Item $driver -Force    
+      - name: Install NVIDIA GPU Drivers
+        shell: powershell
+        run: |
+          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
+          $driver = "$env:TEMP\nvidia_driver.exe"
+          Invoke-WebRequest -Uri $url -OutFile $driver
+          Start-Process -FilePath $driver -ArgumentList "-s", "-noreboot" -Wait
+          Remove-Item $driver -Force
 
-      - name: Ultra Optimize Windows Performance for RDP    
-        run: |    
-          # Otimizações para o usuário RDP
+      - name: Ultra Optimize Windows Performance for RDP
+        shell: powershell
+        run: |
           reg add "HKEY_USERS\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
           reg add "HKEY_USERS\.DEFAULT\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
           reg add "HKEY_USERS\.DEFAULT\Control Panel\Desktop" /v WaitToKillAppTimeout /t REG_SZ /d 2000 /f
           reg add "HKEY_USERS\.DEFAULT\Control Panel\Desktop" /v HungAppTimeout /t REG_SZ /d 1000 /f
-          
-          # Desativar efeitos visuais para RDP
           reg add "HKEY_USERS\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
           reg add "HKEY_USERS\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
-          
-          # Otimizações globais do sistema
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "NtfsDisableLastAccessUpdate" -Value 1 -Type DWord
-          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1 -Type DWord
-          
-          # Desativar serviços desnecessários
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "NtfsDisableLastAccessUpdate" -Value 1
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1
           $services = @("DiagTrack", "WSearch", "Fax", "XboxGipSvc", "XboxNetApiSvc")
           foreach ($service in $services) {
               Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
               Set-Service -Name $service -StartupType Disabled -ErrorAction SilentlyContinue
           }
 
-      - name: Create Access Point System for RDP User
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+
+      - name: Establish Tailscale Connection
+        shell: powershell
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_KEY --hostname=gh-runner-$env:GITHUB_RUN_ID
+          $tsIP = $null
+          for ($i=0; $i -lt 10; $i++) {
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if ($tsIP) { break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $tsIP) { throw "No Tailscale IP found" }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Create Access Point Script (Scheduled Task)
+        shell: powershell
         run: |
           $scriptContent = @'
-          `$sleepDuration = 120
-          while (`$true) {
-              try {
-                  `$tsIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4 2>`$null
-                  if (-not `$tsIP) { `$tsIP = "Tailscale não conectado" }
-                  
-                  `$accessInfo = @"
-                  ====================================
-                  RDP ACCESS INFORMATION - RDP USER
-                  ====================================
-                  Endereço: `$tsIP
-                  Usuário: RDP
-                  Senha: 882188Adr
-                  Porta: 3389
-                  Timestamp: `$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-                  ====================================
-                  Região: Brasil (pt-BR)
-                  Fuso: Brasília (GMT-3)
-                  Teclado: ABNT2
-                  VS Code: Instalado
-                  GPU: NVIDIA Drivers
-                  ====================================
-                  "@
-                  
-                  `$downloadsPath = [System.IO.Path]::Combine([Environment]::GetFolderPath("UserProfile"), "Downloads", "RDP_ACCESS.txt")
-                  `$accessInfo | Out-File -FilePath `$downloadsPath -Encoding utf8
-                  
-                  Write-Host "Ponto de acesso atualizado: `$(Get-Date)"
-              }
-              catch {
-                  Write-Host "Erro ao atualizar ponto de acesso: `$_"
-              }
-              Start-Sleep -Seconds `$sleepDuration
-          }
-'@
-          
-          # Criar script para executar no usuário RDP
-          $scriptPath = "C:\Users\RDP\AppData\Local\access_point.ps1"
-          New-Item -Path (Split-Path $scriptPath) -ItemType Directory -Force | Out-Null
-          $scriptContent | Out-File -FilePath $scriptPath -Encoding utf8
-          
-          # Criar tarefa agendada para executar no login do usuário RDP
-          $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -File `"$scriptPath`""
-          $trigger = New-ScheduledTaskTrigger -AtLogOn -User "RDP"
-          $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RunOnlyIfNetworkAvailable
-          Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "RDPAccessPoint" -Description "Sistema de ponto de acesso RDP" -Settings $settings -User "RDP" -Password "882188Adr" -RunLevel Highest | Out-Null
+$sleepDuration = 120
+while ($true) {
+    try {
+        $tsIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4 2>$null
+        if (-not $tsIP) { $tsIP = "Tailscale não conectado" }
 
-      - name: Install Tailscale    
-        run: |    
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"    
-          $installerPath = "$env:TEMP\tailscale.msi"    
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath    
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait    
-          Remove-Item $installerPath -Force    
-
-      - name: Establish Tailscale Connection    
-        run: |    
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID    
-          $tsIP = $null    
-          for ($i=0; $i -lt 10; $i++) {    
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4    
-            if ($tsIP) { break }    
-            Start-Sleep -Seconds 5    
-          }    
-          if (-not $tsIP) { throw "No Tailscale IP found" }    
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV    
-
-      - name: Create Initial Access File in RDP Downloads
-        run: |
-          $accessContent = @"
+        $accessInfo = @"
 ====================================
 RDP ACCESS INFORMATION - RDP USER
 ====================================
-Endereço: $env:TAILSCALE_IP
+Endereço: $tsIP
 Usuário: RDP
-Senha: 882188Adr
+Senha: RDP_PASS_AQUI
 Porta: 3389
 Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 ====================================
@@ -177,24 +131,59 @@ VS Code: Instalado
 GPU: NVIDIA Drivers
 ====================================
 "@
-          $rdpDownloads = "C:\Users\RDP\Downloads"
+
+        $downloadsPath = [System.IO.Path]::Combine([Environment]::GetFolderPath("UserProfile"), "Downloads", "RDP_ACCESS.txt")
+        $accessInfo | Out-File -FilePath $downloadsPath -Encoding utf8
+
+        Write-Host "Ponto de acesso atualizado: $(Get-Date)"
+    }
+    catch {
+        Write-Host "Erro ao atualizar ponto de acesso: $_"
+    }
+    Start-Sleep -Seconds $sleepDuration
+}
+'@
+
+          $scriptContent = $scriptContent -replace "RDP_PASS_AQUI", $env:RDP_PASS
+          $scriptPath = "C:\Users\$env:RDP_USER\AppData\Local\access_point.ps1"
+          New-Item -Path (Split-Path $scriptPath) -ItemType Directory -Force | Out-Null
+          $scriptContent | Out-File -FilePath $scriptPath -Encoding utf8
+
+          $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -File `"$scriptPath`""
+          $trigger = New-ScheduledTaskTrigger -AtLogOn
+          $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RunOnlyIfNetworkAvailable
+          Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "RDPAccessPoint" -Description "Sistema de ponto de acesso RDP" -Settings $settings -User $env:RDP_USER -Password $env:RDP_PASS -RunLevel Highest | Out-Null
+
+      - name: Create Initial Access File in RDP Downloads
+        shell: powershell
+        run: |
+          $accessContent = @"
+====================================
+RDP ACCESS INFORMATION - RDP USER
+====================================
+Endereço: $env:TAILSCALE_IP
+Usuário: $env:RDP_USER
+Senha: $env:RDP_PASS
+Porta: 3389
+Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+====================================
+Região: Brasil (pt-BR)
+Fuso: Brasília (GMT-3)
+Teclado: ABNT2
+VS Code: Instalado
+GPU: NVIDIA Drivers
+====================================
+"@
+          $rdpDownloads = "C:\Users\$env:RDP_USER\Downloads"
           New-Item -Path $rdpDownloads -ItemType Directory -Force | Out-Null
           $accessContent | Out-File -FilePath "$rdpDownloads\RDP_ACCESS.txt" -Encoding utf8
 
-      - name: Show Access Info    
-        run: |    
-          Write-Host "`n=== RDP ACCESS ==="    
-          Write-Host "Address: $env:TAILSCALE_IP"    
-          Write-Host "Username: RDP"    
-          Write-Host "Password: 882188Adr"    
-          Write-Host "🌎 Região configurada: Brasil (pt-BR)"    
-          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"    
-          Write-Host "⌨️ Teclado: ABNT2"    
-          Write-Host "🔧 VS Code: Instalado"    
-          Write-Host "🎮 GPU driver installed"    
-          Write-Host "⚡ Windows ultra optimized"    
-          Write-Host "🔗 Tailscale ready"    
-          Write-Host "🔄 Sistema de ponto de acesso ativo (2min)"    
-          Write-Host "📁 Arquivo de acesso em: C:\Users\RDP\Downloads\RDP_ACCESS.txt"    
-          Write-Host "==================`n"    
-          while ($true) { Start-Sleep -Seconds 300 }
+      - name: Show Access Info
+        shell: powershell
+        run: |
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Username: $env:RDP_USER"
+          Write-Host "Password: $env:RDP_PASS"
+          Write-Host "📁 Arquivo: C:\Users\$env:RDP_USER\Downloads\RDP_ACCESS.txt"
+          Write-Host "==================`n"
