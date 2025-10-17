@@ -20,15 +20,15 @@ jobs:
           netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389    
           Restart-Service -Name TermService -Force    
 
-      - name: Create Autologin User    
+      - name: Create RDP User    
         run: |    
           $username = "RDP"    
           $password = "882188Adr"    
-          net user $username $password /add    
+          net user $username $password /add /Y    
           net localgroup administrators $username /add    
           net localgroup "Remote Desktop Users" $username /add    
 
-          # Ativar autologin    
+          # Configurar autologin para usuário RDP
           Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
             -Name "AutoAdminLogon" -Value "1" -Type String    
           Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
@@ -38,47 +38,105 @@ jobs:
 
       - name: Configure Locale and Timezone (Brazil)    
         run: |    
-          # Definir idioma, teclado e região para PT-BR    
           Set-WinSystemLocale -SystemLocale pt-BR    
           Set-WinUserLanguageList -LanguageList pt-BR -Force    
+          Set-WinHomeLocation -GeoId 0x1A    
           Set-WinUILanguageOverride -Language pt-BR    
-          Set-WinCultureFromLanguageListOptOut -OptOut 0    
-
-          # Fuso horário de Brasília (GMT-3)    
+          Set-Culture -CultureInfo pt-BR    
           Set-TimeZone -Id "E. South America Standard Time"    
-
-          # Configurar teclado ABNT2    
           $LangList = New-WinUserLanguageList pt-BR    
           $LangList[0].InputMethodTips.Add("0416:00010416")    
           Set-WinUserLanguageList $LangList -Force    
+
+      - name: Install Visual Studio Code
+        run: |
+          $vscodeUrl = "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64"
+          $installerPath = "$env:TEMP\vscode.exe"
+          Invoke-WebRequest -Uri $vscodeUrl -OutFile $installerPath
+          Start-Process -FilePath $installerPath -ArgumentList "/SILENT", "/MERGETASKS=!runcode", "/NORESTART" -Wait
+          Start-Sleep -Seconds 10
+          Remove-Item $installerPath -Force
 
       - name: Install NVIDIA GPU Drivers    
         run: |    
           $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"    
           $driver = "$env:TEMP\nvidia_driver.exe"    
           Invoke-WebRequest -Uri $url -OutFile $driver    
-          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait    
+          Start-Process -FilePath $driver -ArgumentList "-s", "-noreboot" -Wait    
           Remove-Item $driver -Force    
 
-      - name: Ultra Optimize Windows Performance    
+      - name: Ultra Optimize Windows Performance for RDP    
         run: |    
-          # Desativar animações, efeitos visuais e atrasos    
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"    
+          # Otimizações para o usuário RDP
+          reg add "HKEY_USERS\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
+          reg add "HKEY_USERS\.DEFAULT\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
+          reg add "HKEY_USERS\.DEFAULT\Control Panel\Desktop" /v WaitToKillAppTimeout /t REG_SZ /d 2000 /f
+          reg add "HKEY_USERS\.DEFAULT\Control Panel\Desktop" /v HungAppTimeout /t REG_SZ /d 1000 /f
+          
+          # Desativar efeitos visuais para RDP
+          reg add "HKEY_USERS\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
+          reg add "HKEY_USERS\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
+          
+          # Otimizações globais do sistema
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "NtfsDisableLastAccessUpdate" -Value 1 -Type DWord
+          Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "DisablePagingExecutive" -Value 1 -Type DWord
+          
+          # Desativar serviços desnecessários
+          $services = @("DiagTrack", "WSearch", "Fax", "XboxGipSvc", "XboxNetApiSvc")
+          foreach ($service in $services) {
+              Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
+              Set-Service -Name $service -StartupType Disabled -ErrorAction SilentlyContinue
+          }
 
-          # Desligar serviços desnecessários    
-          $services = "DiagTrack","WSearch","Spooler"    
-          foreach ($s in $services) {    
-              Stop-Service -Name $s -ErrorAction SilentlyContinue    
-              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue    
-          }    
-
-          # Desligar efeitos da barra e transparências    
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f    
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f    
+      - name: Create Access Point System for RDP User
+        run: |
+          $scriptContent = @'
+          `$sleepDuration = 120
+          while (`$true) {
+              try {
+                  `$tsIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4 2>`$null
+                  if (-not `$tsIP) { `$tsIP = "Tailscale não conectado" }
+                  
+                  `$accessInfo = @"
+                  ====================================
+                  RDP ACCESS INFORMATION - RDP USER
+                  ====================================
+                  Endereço: `$tsIP
+                  Usuário: RDP
+                  Senha: 882188Adr
+                  Porta: 3389
+                  Timestamp: `$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+                  ====================================
+                  Região: Brasil (pt-BR)
+                  Fuso: Brasília (GMT-3)
+                  Teclado: ABNT2
+                  VS Code: Instalado
+                  GPU: NVIDIA Drivers
+                  ====================================
+                  "@
+                  
+                  `$downloadsPath = [System.IO.Path]::Combine([Environment]::GetFolderPath("UserProfile"), "Downloads", "RDP_ACCESS.txt")
+                  `$accessInfo | Out-File -FilePath `$downloadsPath -Encoding utf8
+                  
+                  Write-Host "Ponto de acesso atualizado: `$(Get-Date)"
+              }
+              catch {
+                  Write-Host "Erro ao atualizar ponto de acesso: `$_"
+              }
+              Start-Sleep -Seconds `$sleepDuration
+          }
+'@
+          
+          # Criar script para executar no usuário RDP
+          $scriptPath = "C:\Users\RDP\AppData\Local\access_point.ps1"
+          New-Item -Path (Split-Path $scriptPath) -ItemType Directory -Force | Out-Null
+          $scriptContent | Out-File -FilePath $scriptPath -Encoding utf8
+          
+          # Criar tarefa agendada para executar no login do usuário RDP
+          $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -File `"$scriptPath`""
+          $trigger = New-ScheduledTaskTrigger -AtLogOn -User "RDP"
+          $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RunOnlyIfNetworkAvailable
+          Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "RDPAccessPoint" -Description "Sistema de ponto de acesso RDP" -Settings $settings -User "RDP" -Password "882188Adr" -RunLevel Highest | Out-Null
 
       - name: Install Tailscale    
         run: |    
@@ -100,6 +158,29 @@ jobs:
           if (-not $tsIP) { throw "No Tailscale IP found" }    
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV    
 
+      - name: Create Initial Access File in RDP Downloads
+        run: |
+          $accessContent = @"
+====================================
+RDP ACCESS INFORMATION - RDP USER
+====================================
+Endereço: $env:TAILSCALE_IP
+Usuário: RDP
+Senha: 882188Adr
+Porta: 3389
+Timestamp: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+====================================
+Região: Brasil (pt-BR)
+Fuso: Brasília (GMT-3)
+Teclado: ABNT2
+VS Code: Instalado
+GPU: NVIDIA Drivers
+====================================
+"@
+          $rdpDownloads = "C:\Users\RDP\Downloads"
+          New-Item -Path $rdpDownloads -ItemType Directory -Force | Out-Null
+          $accessContent | Out-File -FilePath "$rdpDownloads\RDP_ACCESS.txt" -Encoding utf8
+
       - name: Show Access Info    
         run: |    
           Write-Host "`n=== RDP ACCESS ==="    
@@ -109,8 +190,11 @@ jobs:
           Write-Host "🌎 Região configurada: Brasil (pt-BR)"    
           Write-Host "⏰ Fuso horário: Brasília (GMT-3)"    
           Write-Host "⌨️ Teclado: ABNT2"    
-          Write-Host "✅ GPU driver installed"    
-          Write-Host "✅ Windows ultra optimized"    
-          Write-Host "✅ Tailscale ready"    
+          Write-Host "🔧 VS Code: Instalado"    
+          Write-Host "🎮 GPU driver installed"    
+          Write-Host "⚡ Windows ultra optimized"    
+          Write-Host "🔗 Tailscale ready"    
+          Write-Host "🔄 Sistema de ponto de acesso ativo (2min)"    
+          Write-Host "📁 Arquivo de acesso em: C:\Users\RDP\Downloads\RDP_ACCESS.txt"    
           Write-Host "==================`n"    
           while ($true) { Start-Sleep -Seconds 300 }
