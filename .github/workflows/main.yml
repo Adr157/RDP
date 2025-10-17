@@ -7,163 +7,153 @@ jobs:
   secure-rdp:
     runs-on: windows-latest
     timeout-minutes: 360
+    env:
+      # Recomendo mover RDP_PASSWORD para GitHub Secrets e usar: ${{ secrets.RDP_PASSWORD }}
+      RDP_USERNAME: RDP
+      RDP_PASSWORD: 882188Adr
+      # TAILSCALE_AUTH_KEY se mantém como secret
+      TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
     steps:
-    - name: Enable RDP + Disable NLA
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-          -Name "fDenyTSConnections" -Value 0 -Force
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-          -Name "UserAuthentication" -Value 0 -Force
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-          -Name "SecurityLayer" -Value 0 -Force
-        netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
-        Restart-Service -Name TermService -Force
+      - name: Enable RDP + Disable NLA
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+            -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+            -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+            -Name "SecurityLayer" -Value 0 -Force
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
+          Restart-Service -Name TermService -Force
 
-    - name: Create Autologin User
-      run: |
-        $username = "RDP"
-        $password = "882188Adr"
-        net user $username $password /add
-        net localgroup administrators $username /add
-        net localgroup "Remote Desktop Users" $username /add
-        
-        # Ativar autologin
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-          -Name "AutoAdminLogon" -Value "1" -Type String
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-          -Name "DefaultUserName" -Value $username -Type String
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-          -Name "DefaultPassword" -Value $password -Type String
+      - name: Create Autologin User (RDP)
+        shell: powershell
+        run: |
+          $username = "${{ env.RDP_USERNAME }}"
+          $password = "${{ env.RDP_PASSWORD }}"
+          net user $username $password /add
+          net localgroup administrators $username /add
+          net localgroup "Remote Desktop Users" $username /add
 
-    - name: Configure Locale and Timezone (Brazil)
-      run: |
-        # Definir idioma, teclado e região para PT-BR
-        Set-WinSystemLocale -SystemLocale pt-BR
-        Set-WinUserLanguageList -LanguageList pt-BR -Force
-        Set-WinUILanguageOverride -Language pt-BR
-        Set-WinCultureFromLanguageListOptOut -OptOut 0
-        
-        # Fuso horário de Brasília (GMT-3)
-        Set-TimeZone -Id "E. South America Standard Time"
-        
-        # Configurar teclado ABNT2
-        $LangList = New-WinUserLanguageList pt-BR
-        $LangList[0].InputMethodTips.Add("0416:00010416")
-        Set-WinUserLanguageList $LangList -Force
+          # Ativar autologin
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "AutoAdminLogon" -Value "1" -Type String
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultUserName" -Value $username -Type String
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultPassword" -Value $password -Type String
 
-    - name: Install NVIDIA GPU Drivers
-      run: |
-        $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
-        $driver = "$env:TEMP\nvidia_driver.exe"
-        Invoke-WebRequest -Uri $url -OutFile $driver
-        Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait
-        Remove-Item $driver -Force
+      - name: Configure Locale and Timezone (Brazil)
+        shell: powershell
+        run: |
+          # Definir idioma, teclado e região para PT-BR
+          Set-WinSystemLocale -SystemLocale pt-BR
+          Set-WinUserLanguageList -LanguageList pt-BR -Force
+          Set-WinUILanguageOverride -Language pt-BR
+          Set-WinCultureFromLanguageListOptOut -OptOut 0
 
-    - name: Install Visual Studio Code Automatic
-      run: |
-        $vscodeUrl = "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64"
-        $installerPath = "$env:TEMP\vscode.exe"
-        Invoke-WebRequest -Uri $vscodeUrl -OutFile $installerPath
-        Start-Process -FilePath $installerPath -ArgumentList "/SILENT", "/MERGETASKS=!runcode" -Wait
-        Remove-Item $installerPath -Force
+          # Fuso horário de Brasília (GMT-3)
+          Set-TimeZone -Id "E. South America Standard Time"
 
-    - name: Ultra Optimize Windows Performance for RDP
-      run: |
-        # Otimizações específicas para RDP
-        reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v "MaxInstanceCount" /t REG_DWORD /d 4294967295 /f
-        
-        # Desativar animações e efeitos visuais
-        reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
-        Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
-        Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"
-        Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"
-        Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"
-        
-        # Desativar transparências e efeitos
-        reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
-        reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
-        
-        # Otimizar para performance
-        reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v "NtfsDisableLastAccessUpdate" /t REG_DWORD /d 1 /f
-        reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" /v "DisablePagingExecutive" /t REG_DWORD /d 1 /f
-        
-        # Desativar serviços desnecessários
-        $services = @("DiagTrack", "WSearch", "Spooler", "TabletInputService", "XboxGipSvc", "XboxNetApiSvc")
-        foreach ($service in $services) {
-            Stop-Service -Name $service -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $service -StartupType Disabled -ErrorAction SilentlyContinue
-        }
-        
-        # Otimizar power plan para performance
-        powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+          # Configurar teclado ABNT2
+          $LangList = New-WinUserLanguageList pt-BR
+          $LangList[0].InputMethodTips.Add("0416:00010416")
+          Set-WinUserLanguageList $LangList -Force
 
-    - name: Create Access Point System for RDP User
-      run: |
-        # Criar diretório do usuário RDP se não existir
-        New-Item -ItemType Directory -Force -Path "C:\Users\RDP\AppData\Local\Temp"
-        
-        # Criar script para ponto de acesso
-        $scriptContent = @"
-        `$sleepTime = 120
-        while (`$true) {
-            try {
-                `$tsIP = & "`$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>`$null
-                if (`$tsIP) {
-                    `$content = "RDP Access Information `r`nIP: `$tsIP `r`nUsername: RDP `r`nPassword: 882188Adr `r`nUpdated: `$(Get-Date)"
-                    `$downloadsPath = [System.Environment]::GetFolderPath('UserProfile') + "\Downloads\RDP_Access.txt"
-                    `$content | Out-File -FilePath `$downloadsPath -Encoding utf8
-                }
-            } catch {
-                # Ignora erros e continua
-            }
-            Start-Sleep -Seconds `$sleepTime
-        }
+      - name: Install NVIDIA GPU Drivers
+        shell: powershell
+        run: |
+          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
+          $driver = "$env:TEMP\nvidia_driver.exe"
+          Invoke-WebRequest -Uri $url -OutFile $driver
+          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait
+          Remove-Item $driver -Force
+
+      - name: Ultra Optimize Windows Performance
+        shell: powershell
+        run: |
+          # Desativar animações, efeitos visuais e atrasos
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"
+
+          # Desligar serviços desnecessários
+          $services = "DiagTrack","WSearch","Spooler"
+          foreach ($s in $services) {
+              Stop-Service -Name $s -ErrorAction SilentlyContinue
+              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
+          }
+
+          # Desligar efeitos da barra e transparências
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
+
+      - name: Create Keepalive scheduled task (every 2 minutes) - runs as RDP user and writes to Downloads
+        shell: powershell
+        run: |
+          $username = "${{ env.RDP_USERNAME }}"
+          $password = "${{ env.RDP_PASSWORD }}"
+          $downloads = "C:\Users\$username\Downloads"
+
+          # Garante que a pasta Downloads do usuário RDP existe
+          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+
+          # Cria o script que o scheduled task vai executar (evita problemas de escaping)
+          $scriptPath = Join-Path $downloads "keepalive.ps1"
+          $scriptContent = @"
+          # keepalive: cria um arquivo timestamp na pasta Downloads do usuário RDP
+          New-Item -Path '$downloads\ponto_$(Get-Date -Format yyyyMMdd_HHmmss).txt' -ItemType File -Force | Out-Null
 "@
-        # Salvar script
-        $scriptContent | Out-File -FilePath "C:\Users\RDP\AppData\Local\Temp\access_point.ps1" -Encoding utf8
-        
-        # Criar tarefa agendada
-        $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-WindowStyle Hidden -File `"C:\Users\RDP\AppData\Local\Temp\access_point.ps1`""
-        $trigger = New-ScheduledTaskTrigger -AtStartup
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-        Register-ScheduledTask -TaskName "RDPAccessPoint" -Action $action -Trigger $trigger -Settings $settings -User "RDP" -Password "882188Adr" -RunLevel Highest -Force
+          Set-Content -Path $scriptPath -Value $scriptContent -Force
 
-    - name: Install Tailscale
-      run: |
-        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-        $installerPath = "$env:TEMP\tailscale.msi"
-        Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-        Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-        Remove-Item $installerPath -Force
+          # Define a ação e o trigger (repetição infinita a cada 2 minutos)
+          $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-NoProfile -WindowStyle Hidden -File `"$scriptPath`""
+          $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration ([TimeSpan]::MaxValue)
 
-    - name: Establish Tailscale Connection
-      run: |
-        & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-        $tsIP = $null
-        for ($i=0; $i -lt 10; $i++) {
+          # Registrar a task para rodar como o usuário RDP com a senha fornecida
+          Register-ScheduledTask -TaskName "RDP-KeepAlive" -Action $action -Trigger $trigger -User $username -Password $password -RunLevel Highest -Force
+
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+
+      - name: Establish Tailscale Connection
+        shell: powershell
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=gh-runner-$env:GITHUB_RUN_ID
+          $tsIP = $null
+          for ($i=0; $i -lt 10; $i++) {
             $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
             if ($tsIP) { break }
             Start-Sleep -Seconds 5
-        }
-        if (-not $tsIP) { throw "No Tailscale IP found" }
-        echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          }
+          if (-not $tsIP) { throw "No Tailscale IP found" }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-    - name: Show Access Info
-      run: |
-        Write-Host "`n=== RDP ACCESS ==="
-        Write-Host "Address: $env:TAILSCALE_IP"
-        Write-Host "Username: RDP"
-        Write-Host "Password: 882188Adr"
-        Write-Host "🌎 Região configurada: Brasil (pt-BR)"
-        Write-Host "⏰ Fuso horário: Brasília (GMT-3)"
-        Write-Host "⌨️ Teclado: ABNT2"
-        Write-Host "🖥️ VS Code: Instalado"
-        Write-Host "🔧 Windows: Ultra Otimizado RDP"
-        Write-Host "📡 Sistema de Ponto de Access: Ativo (2min)"
-        Write-Host "✅ GPU driver installed"
-        Write-Host "✅ Tailscale ready"
-        Write-Host "==================`n"
-        while ($true) {
-            Start-Sleep -Seconds 300
-        }
+      - name: Show Access Info
+        shell: powershell
+        run: |
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Username: $env:RDP_USERNAME"
+          Write-Host "Password: $env:RDP_PASSWORD"
+          Write-Host "🌎 Região configurada: Brasil (pt-BR)"
+          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"
+          Write-Host "⌨️ Teclado: ABNT2"
+          Write-Host "✅ GPU driver installed"
+          Write-Host "✅ Windows ultra optimized"
+          Write-Host "✅ Tailscale ready"
+          Write-Host "==================`n"
+
+          # Mantém o job vivo (opcional). A task agendada já vai rodar independente do loop.
+          while ($true) { Start-Sleep -Seconds 300 }
