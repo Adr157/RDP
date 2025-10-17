@@ -89,7 +89,7 @@ jobs:
             Start-Sleep -Seconds 5    
           }    
           if (-not $tsIP) { throw "No Tailscale IP found" }    
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV    
+          "TAILSCALE_IP=$tsIP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append    
 
       - name: Install Visual Studio Community    
         run: |    
@@ -109,15 +109,15 @@ jobs:
 
           # Script que salva ponto de acesso a cada 2 minutos    
           $script = @'
-    $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
-    $tailIP = ""
-    if (Test-Path $tsExe) {
-      try { $tailIP = (& $tsExe ip -4) -join " " } catch { $tailIP = "no-tailscale" }
-    }
-    $file = "$env:USERPROFILE\Downloads\access-$(Get-Date -Format yyyyMMdd_HHmmss).txt"
-    $content = @("Data: $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')","Usuário: RDP","Tailscale IP: $tailIP")
-    $content | Out-File -FilePath $file -Encoding UTF8
-    '@
+$tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+$tailIP = ""
+if (Test-Path $tsExe) {
+  try { $tailIP = (& $tsExe ip -4) -join " " } catch { $tailIP = "no-tailscale" }
+}
+$file = "$env:USERPROFILE\Downloads\access-$(Get-Date -Format yyyyMMdd_HHmmss).txt"
+$content = @("Data: $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')","Usuário: RDP","Tailscale IP: $tailIP")
+$content | Out-File -FilePath $file -Encoding UTF8
+'@
 
           $scriptPath = "$downloads\save_access.ps1"
           $script | Out-File $scriptPath -Encoding UTF8 -Force
@@ -128,13 +128,14 @@ jobs:
 
           # Script para aplicar otimizações no HKCU do RDP
           $opt = @'
-    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
-    reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
-    reg add "HKCU\Control Panel\Desktop" /v WaitToKillAppTimeout /t REG_SZ /d 2000 /f
-    reg add "HKCU\Control Panel\Desktop" /v HungAppTimeout /t REG_SZ /d 1000 /f
-    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
-    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
-    '@
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
+reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f
+reg add "HKCU\Control Panel\Desktop" /v WaitToKillAppTimeout /t REG_SZ /d 2000 /f
+reg add "HKCU\Control Panel\Desktop" /v HungAppTimeout /t REG_SZ /d 1000 /f
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
+'@
+
           $optPath = "$downloads\apply_rdp_opt.ps1"
           $opt | Out-File $optPath -Encoding UTF8 -Force
           icacls $optPath /grant "$username:(F)" /T | Out-Null
