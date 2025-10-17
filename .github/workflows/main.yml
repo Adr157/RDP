@@ -103,14 +103,14 @@ jobs:
         # Criar diretório do usuário RDP se não existir
         New-Item -ItemType Directory -Force -Path "C:\Users\RDP\AppData\Local\Temp"
         
-        # Script para criar ponto de acesso
-        $scriptContent = @'
-        `$sleepTime = 120  # 2 minutos
+        # Criar script para ponto de acesso
+        $scriptContent = @"
+        `$sleepTime = 120
         while (`$true) {
             try {
                 `$tsIP = & "`$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>`$null
                 if (`$tsIP) {
-                    `$content = "RDP Access Information `nIP: `$tsIP `nUsername: RDP `nPassword: 882188Adr `nUpdated: `$(Get-Date)"
+                    `$content = "RDP Access Information `r`nIP: `$tsIP `r`nUsername: RDP `r`nPassword: 882188Adr `r`nUpdated: `$(Get-Date)"
                     `$downloadsPath = [System.Environment]::GetFolderPath('UserProfile') + "\Downloads\RDP_Access.txt"
                     `$content | Out-File -FilePath `$downloadsPath -Encoding utf8
                 }
@@ -119,7 +119,7 @@ jobs:
             }
             Start-Sleep -Seconds `$sleepTime
         }
-'@
+"@
         # Salvar script
         $scriptContent | Out-File -FilePath "C:\Users\RDP\AppData\Local\Temp\access_point.ps1" -Encoding utf8
         
