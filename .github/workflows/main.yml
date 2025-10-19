@@ -195,7 +195,7 @@ jobs:
     $username = "$env:USERNAME"
     $passwordPlain = "YourPasswordHere"
 
-    $scriptContent = @"
+    $scriptContent = @'
 # create_hotspot.ps1 - attempt to configure/start hosted network and log results
 $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $outFile = "$env:USERPROFILE\Downloads\hotspot-log-$((Get-Date).ToString('yyyyMMdd-HHmmss')).txt"
@@ -211,7 +211,7 @@ try {
 } catch {
     "Hotspot script error: $_" | Out-File -FilePath $outFile -Encoding UTF8 -Append
 }
-"@
+'@
 
     # Save and schedule the script
     if (-not (Test-Path $rdpDownloads)) { New-Item -Path $rdpDownloads -ItemType Directory -Force | Out-Null }
