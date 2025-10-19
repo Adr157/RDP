@@ -2,7 +2,6 @@ name: Cloud Gaming RDP
 
 on:
 workflow_dispatch:
-
 jobs:
   cloud-gaming:
     runs-on: windows-2022
