@@ -1,22 +1,20 @@
-name: Cloud Gaming RDP
-
+name: CloudGamingRDP
 on:
-workflow_dispatch:
+ workflow_dispatch:
 jobs:
-cloud-gaming:
-runs-on: windows-2022
-timeout-minutes: 3600
-
-    steps:
-      - name: Configure Core RDP Settings
-        continue-on-error: true
-        shell: powershell
-        run: |
-          # Enable Remote Desktop and disable Network Level Authentication (NLA)
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-
+ cloud-gaming:
+  runs-on: windows-2022
+  timeout-minutes: 3600
+  steps:
+  - name: ConfigureCoreRDPSettings
+    continue-on-error: true
+    shell: powershell
+    run: |
+     Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+     Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+     Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+     netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
+     Restart-Service -Name TermService -Force
           # Firewall for RDP
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
 
