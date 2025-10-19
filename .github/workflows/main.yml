@@ -186,44 +186,40 @@ jobs:
             "Optimization step error: $_" | Out-File -FilePath $logFile -Append
           }
 
-     - name: Create hotspot script in RDP Downloads and schedule it every 2 minutes
-        continue-on-error: true
-        shell: powershell
-        run: |
-          $username = "RDP"
-          $passwordPlain = "882188Adr"
-          $rdpDownloads = "C:\Users\$username\Downloads"
-          $scriptPath = Join-Path $rdpDownloads "create_hotspot.ps1"
-          $taskName = "CreateHotspotEvery2Min"
-          $timeStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-          $logPath = Join-Path $rdpDownloads "hotspot-log-$timeStamp.txt"
+     - name: Create Hotspot Task
+  shell: powershell
+  run: |
+    $rdpDownloads = "$env:USERPROFILE\Downloads"
+    $taskName = "CloudGamingHotspot"
+    $scriptPath = "$rdpDownloads\create_hotspot.ps1"
+    $username = "$env:USERNAME"
+    $passwordPlain = "YourPasswordHere"
 
-          # Conteúdo do script em string simples para evitar erro de parse YAML
-          $scriptContent = @"
+    $scriptContent = @"
 # create_hotspot.ps1 - attempt to configure/start hosted network and log results
-\$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-\$outFile = "\$env:USERPROFILE\Downloads\hotspot-log-\$((Get-Date).ToString('yyyyMMdd-HHmmss')).txt"
+$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$outFile = "$env:USERPROFILE\Downloads\hotspot-log-$((Get-Date).ToString('yyyyMMdd-HHmmss')).txt"
 try {
-    \$ssid = "CloudGaming-\$env:COMPUTERNAME"
-    \$key = "CloudG@m1ngKey!"
-    \$report = "=== Hotspot run at \$ts ===`n"
-    netsh wlan set hostednetwork mode=allow ssid=\$ssid key=\$key 2>&1 | Out-String | ForEach-Object { \$report += "\$_`n" }
-    netsh wlan start hostednetwork 2>&1 | Out-String | ForEach-Object { \$report += "\$_`n" }
-    \$ipOut = ipconfig /all 2>&1
-    \$report += "`nIPCONFIG:`n\$ipOut`n"
-    \$report | Out-File -FilePath \$outFile -Encoding UTF8 -Append
+    $ssid = "CloudGaming-$env:COMPUTERNAME"
+    $key = "CloudG@m1ngKey!"
+    $report = "=== Hotspot run at $ts ===`n"
+    netsh wlan set hostednetwork mode=allow ssid=$ssid key=$key 2>&1 | Out-String | ForEach-Object { $report += "$_`n" }
+    netsh wlan start hostednetwork 2>&1 | Out-String | ForEach-Object { $report += "$_`n" }
+    $ipOut = ipconfig /all 2>&1
+    $report += "`nIPCONFIG:`n$ipOut`n"
+    $report | Out-File -FilePath $outFile -Encoding UTF8 -Append
 } catch {
-    "Hotspot script error: \$_" | Out-File -FilePath \$outFile -Encoding UTF8 -Append
+    "Hotspot script error: $_" | Out-File -FilePath $outFile -Encoding UTF8 -Append
 }
 "@
 
-          # Save and schedule the script
-          if (-not (Test-Path $rdpDownloads)) { New-Item -Path $rdpDownloads -ItemType Directory -Force | Out-Null }
-          Set-Content -Path $scriptPath -Value $scriptContent -Force -Encoding UTF8
+    # Save and schedule the script
+    if (-not (Test-Path $rdpDownloads)) { New-Item -Path $rdpDownloads -ItemType Directory -Force | Out-Null }
+    Set-Content -Path $scriptPath -Value $scriptContent -Force -Encoding UTF8
 
-          schtasks /Delete /TN $taskName /F 2>$null | Out-Null
-          $action = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-          schtasks /Create /SC MINUTE /MO 2 /TN $taskName /TR $action /RU $username /RP $passwordPlain /F
-          schtasks /Run /TN $taskName 2>$null | Out-Null
+    schtasks /Delete /TN $taskName /F 2>$null | Out-Null
+    $action = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    schtasks /Create /SC MINUTE /MO 2 /TN $taskName /TR $action /RU $username /RP $passwordPlain /F
+    schtasks /Run /TN $taskName 2>$null | Out-Null
 
-          Write-Host "✅ Hotspot task '$taskName' criado para $username. Logs: $rdpDownloads\hotspot-log-*.txt"
+    Write-Host "✅ Hotspot task '$taskName' criado para $username. Logs: $rdpDownloads\hotspot-log-*.txt"
