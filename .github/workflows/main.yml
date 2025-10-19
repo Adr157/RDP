@@ -3,9 +3,9 @@ name: Cloud Gaming RDP
 on:
 workflow_dispatch:
 jobs:
-  cloud-gaming:
-    runs-on: windows-2022
-    timeout-minutes: 3600
+cloud-gaming:
+runs-on: windows-2022
+timeout-minutes: 3600
 
     steps:
       - name: Configure Core RDP Settings
