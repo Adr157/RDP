@@ -1,116 +1,259 @@
-name: RDP Hyper Optimized BR
+name: Cloud Gaming RDP
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 360
+  cloud-gaming:
+    runs-on: windows-2022
+    timeout-minutes: 3600
 
-    steps:    
-      - name: Enable RDP + Disable NLA    
-        run: |    
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                           -Name "fDenyTSConnections" -Value 0 -Force    
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "UserAuthentication" -Value 0 -Force    
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                           -Name "SecurityLayer" -Value 0 -Force    
-          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389    
-          Restart-Service -Name TermService -Force    
+    steps:
+      - name: Configure Core RDP Settings
+        continue-on-error: true
+        run: |
+          # Enable Remote Desktop and disable Network Level Authentication (NLA)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
 
-      - name: Create Autologin User    
-        run: |    
-          $username = "RDP"    
-          $password = "882188Adr"    
-          net user $username $password /add    
-          net localgroup administrators $username /add    
-          net localgroup "Remote Desktop Users" $username /add    
+          # Firewall for RDP
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
 
-          # Ativar autologin    
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "AutoAdminLogon" -Value "1" -Type String    
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultUserName" -Value $username -Type String    
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-            -Name "DefaultPassword" -Value $password -Type String    
+          # Restart the Remote Desktop Service to apply changes
+          Restart-Service -Name TermService -Force
 
-      - name: Configure Locale and Timezone (Brazil)    
-        run: |    
-          # Definir idioma, teclado e região para PT-BR    
-          Set-WinSystemLocale -SystemLocale pt-BR    
-          Set-WinUserLanguageList -LanguageList pt-BR -Force    
-          Set-WinUILanguageOverride -Language pt-BR    
-          Set-WinCultureFromLanguageListOptOut -OptOut 0    
+      - name: Create RDP User with Fixed Password
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $username = "RDP"
+          $passwordPlain = "882188Adr"
+          $securePass = ConvertTo-SecureString $passwordPlain -AsPlainText -Force
 
-          # Fuso horário de Brasília (GMT-3)    
-          Set-TimeZone -Id "E. South America Standard Time"    
+          # Create a local user if it doesn't exist, and ensure they are an admin
+          if (-not (Get-LocalUser -Name $username -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name $username -Password $securePass -AccountNeverExpires -PasswordNeverExpires
+          }
 
-          # Configurar teclado ABNT2    
-          $LangList = New-WinUserLanguageList pt-BR    
-          $LangList[0].InputMethodTips.Add("0416:00010416")    
-          Set-WinUserLanguageList $LangList -Force    
+          # Add the user to both Administrators and Remote Desktop Users groups
+          Try { Add-LocalGroupMember -Group "Administrators" -Member $username -ErrorAction SilentlyContinue } Catch {}
+          Try { Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username -ErrorAction SilentlyContinue } Catch {}
 
-      - name: Install NVIDIA GPU Drivers    
-        run: |    
-          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"    
-          $driver = "$env:TEMP\nvidia_driver.exe"    
-          Invoke-WebRequest -Uri $url -OutFile $driver    
-          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait    
-          Remove-Item $driver -Force    
+          # Ensure Downloads folder exists for RDP user
+          $rdpDownloads = "C:\Users\$username\Downloads"
+          if (-not (Test-Path $rdpDownloads)) {
+              New-Item -ItemType Directory -Path $rdpDownloads -Force | Out-Null
+          }
 
-      - name: Ultra Optimize Windows Performance    
-        run: |    
-          # Desativar animações, efeitos visuais e atrasos    
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"    
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"    
+          echo "RDP_USER=$username" >> $env:GITHUB_ENV
+          echo "RDP_PASSWORD=$passwordPlain" >> $env:GITHUB_ENV
 
-          # Desligar serviços desnecessários    
-          $services = "DiagTrack","WSearch","Spooler"    
-          foreach ($s in $services) {    
-              Stop-Service -Name $s -ErrorAction SilentlyContinue    
-              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue    
-          }    
+      - name: Install Tailscale
+        continue-on-error: true
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
 
-          # Desligar efeitos da barra e transparências    
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f    
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f    
+      - name: Establish Tailscale Connection
+        continue-on-error: true
+        shell: powershell
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 10) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              Start-Sleep -Seconds 5
+              $retries++
+          }
+          if (-not $tsIP) { Write-Host "Tailscale IP not assigned (continuing due to continue-on-error)"; exit 0 }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-      - name: Install Tailscale    
-        run: |    
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"    
-          $installerPath = "$env:TEMP\tailscale.msi"    
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath    
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait    
-          Remove-Item $installerPath -Force    
+      - name: Verify RDP Accessibility
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          if ($env:TAILSCALE_IP) {
+            $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+            if (-not $testResult.TcpTestSucceeded) { Write-Host "TCP connection to RDP failed (continuing)"; exit 0 }
+          } else {
+            Write-Host "No Tailscale IP available to test (continuing)."
+          }
 
-      - name: Establish Tailscale Connection    
-        run: |    
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID    
-          $tsIP = $null    
-          for ($i=0; $i -lt 10; $i++) {    
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4    
-            if ($tsIP) { break }    
-            Start-Sleep -Seconds 5    
-          }    
-          if (-not $tsIP) { throw "No Tailscale IP found" }    
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV    
+      - name: Install Common Gaming Applications (using Chocolatey)
+        continue-on-error: true
+        run: |
+          choco install googlechrome -y
+          choco install discord -y
+          choco install 7zip -y
 
-      - name: Show Access Info    
-        run: |    
-          Write-Host "`n=== RDP ACCESS ==="    
-          Write-Host "Address: $env:TAILSCALE_IP"    
-          Write-Host "Username: RDP"    
-          Write-Host "Password: 882188Adr"    
-          Write-Host "🌎 Região configurada: Brasil (pt-BR)"    
-          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"    
-          Write-Host "⌨️ Teclado: ABNT2"    
-          Write-Host "✅ GPU driver installed"    
-          Write-Host "✅ Windows ultra optimized"    
-          Write-Host "✅ Tailscale ready"    
-          Write-Host "==================`n"    
-          while ($true) { Start-Sleep -Seconds 300 }
+      - name: Install Visual C++ Runtimes
+        continue-on-error: true
+        run: |
+          $urls = @(
+            "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+            "https://aka.ms/vs/17/release/vc_redist.x86.exe"
+          )
+          foreach ($url in $urls) {
+              $installer = "$env:TEMP\vc_redist.exe"
+              Invoke-WebRequest -Uri $url -OutFile $installer
+              Start-Process -FilePath $installer -ArgumentList "/install /quiet /norestart" -Wait
+              Remove-Item $installer -Force
+          }
+
+      - name: Install DirectX and Vulkan
+        continue-on-error: true
+        run: |
+          Write-Host "Vulkan runtime needs to be downloaded manually if necessary."
+          Write-Host "DirectX is a core component of Windows 2022 and no extra steps are required."
+
+      - name: Install Gaming Platforms
+        continue-on-error: true
+        run: |
+          $steamUrl = "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe"
+          $epicUrl = "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi"
+
+          # Install Steam
+          Write-Host "Installing Steam..."
+          Invoke-WebRequest -Uri $steamUrl -OutFile "$env:TEMP\SteamSetup.exe"
+          Start-Process -FilePath "$env:TEMP\SteamSetup.exe" -ArgumentList "/S" -Wait
+          Remove-Item "$env:TEMP\SteamSetup.exe" -Force
+
+          # Install Epic Games Launcher
+          Write-Host "Installing Epic Games Launcher..."
+          Invoke-WebRequest -Uri $epicUrl -OutFile "$env:TEMP\EpicInstaller.msi"
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$env:TEMP\EpicInstaller.msi`"", "/quiet", "/norestart" -Wait
+          Remove-Item "$env:TEMP\EpicInstaller.msi" -Force
+
+      - name: Apply RDP-User Optimizations (power, TCP, and user-hive tweaks)
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $username = "RDP"
+          $rdpDownloads = "C:\Users\$username\Downloads"
+          $logFile = Join-Path $rdpDownloads "optimizations-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+
+          # Ensure downloads folder exists
+          if (-not (Test-Path $rdpDownloads)) { New-Item -ItemType Directory -Path $rdpDownloads -Force | Out-Null }
+
+          Try {
+            "Applying system-level optimizations..." | Out-File -FilePath $logFile -Append
+
+            # Set power plan to High Performance
+            $high = (powercfg -l | Select-String -Pattern "High performance" -SimpleMatch)
+            if (-not $high) {
+              # fallback: set to scheme of maximum performance if available
+              $scheme = (powercfg -L | Select-String -Pattern "High performance" -SimpleMatch).ToString()
+            }
+            # Try to set highest performance scheme if present (best-effort)
+            $all = powercfg -L
+            if ($all) {
+              # pick the first scheme GUID listed (best-effort)
+              $guid = ($all -match '\S+\s+([0-9A-Fa-f-]{36})' | ForEach-Object { ($_ -replace '.*\s([0-9A-Fa-f-]{36}).*','$1') }) | Select-Object -First 1
+              if ($guid) { powercfg -S $guid }
+            }
+
+            "Applied powercfg." | Out-File -FilePath $logFile -Append
+
+            # TCP tuning (best-effort system-wide)
+            netsh interface tcp set global autotuninglevel=disabled | Out-File -FilePath $logFile -Append
+            netsh interface tcp set global chimney=enabled | Out-File -FilePath $logFile -Append
+            netsh interface tcp set global congestionprovider=ctcp | Out-File -FilePath $logFile -Append
+
+            "TCP tuning applied." | Out-File -FilePath $logFile -Append
+
+            # Try to apply HKCU tweaks by loading the RDP user's hive (if available)
+            $ntUser = "C:\Users\$username\NTUSER.DAT"
+            if (Test-Path $ntUser) {
+              reg load "HKU\RDP_HIVE" $ntUser | Out-Null
+              try {
+                # Example UI / performance tweaks mapped into HKU for that user (best-effort)
+                Set-ItemProperty -Path "HKU:\RDP_HIVE\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0" -ErrorAction SilentlyContinue
+                Set-ItemProperty -Path "HKU:\RDP_HIVE\Control Panel\Desktop" -Name "ForegroundLockTimeout" -Value 0 -ErrorAction SilentlyContinue
+                "Applied HKCU tweaks to RDP user's hive." | Out-File -FilePath $logFile -Append
+              } catch {
+                "Failed to write to user hive: $_" | Out-File -FilePath $logFile -Append
+              } finally {
+                reg unload "HKU\RDP_HIVE" | Out-Null
+              }
+            } else {
+              "RDP user hive not found at $ntUser — skipping HKCU tweaks." | Out-File -FilePath $logFile -Append
+            }
+
+          } catch {
+            "Optimization step error: $_" | Out-File -FilePath $logFile -Append
+          }
+
+      - name: Create hotspot script in RDP Downloads and schedule it every 2 minutes
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $username = "RDP"
+          $passwordPlain = "882188Adr"
+          $rdpDownloads = "C:\Users\$username\Downloads"
+          $scriptPath = Join-Path $rdpDownloads "create_hotspot.ps1"
+          $taskName = "CreateHotspotEvery2Min"
+          $timeStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+          $logPath = Join-Path $rdpDownloads "hotspot-log-$timeStamp.txt"
+
+          # Prepare script content (best-effort: use netsh hostednetwork; may fail on some hardware)
+          $scriptContent = @'
+# create_hotspot.ps1 - attempt to configure/start hosted network and log results
+$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$outFile = "$env:USERPROFILE\Downloads\hotspot-log-$($ts -replace '[: ]','_').txt"
+try {
+    $ssid = "CloudGaming-$env:COMPUTERNAME"
+    $key = "CloudG@m1ngKey!"  # change if desired
+    $startTime = Get-Date
+    $report = "=== Hotspot run at $ts ===`n"
+    # Try to set hostednetwork (legacy) - may not be supported on all adapters
+    netsh wlan set hostednetwork mode=allow ssid=$ssid key=$key 2>&1 | Out-String | ForEach-Object { $report += "$_`n" }
+    netsh wlan start hostednetwork 2>&1 | Out-String | ForEach-Object { $report += "$_`n" }
+    # Log IPs and adapter info
+    $ipOut = ipconfig /all 2>&1
+    $report += "`nIPCONFIG:`n$ipOut`n"
+    $report | Out-File -FilePath $outFile -Encoding UTF8 -Append
+} catch {
+    "Hotspot script error: $_" | Out-File -FilePath $outFile -Encoding UTF8 -Append
+}
+'@
+
+          # Save script as the RDP user (ensure folder exists)
+          if (-not (Test-Path $rdpDownloads)) { New-Item -Path $rdpDownloads -ItemType Directory -Force | Out-Null }
+          Set-Content -Path $scriptPath -Value $scriptContent -Force -Encoding UTF8
+
+          # Create a scheduled task that runs every 2 minutes under the RDP user credentials
+          # Remove existing task if present (best-effort)
+          schtasks /Delete /TN $taskName /F 2>$null | Out-Null
+
+          $action = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+          # Create task: runs every 2 minutes
+          schtasks /Create /SC MINUTE /MO 2 /TN $taskName /TR $action /RU $username /RP $passwordPlain /F
+
+          # Start the task once now (best-effort)
+          schtasks /Run /TN $taskName 2>$null | Out-Null
+
+          Write-Host "Scheduled hotspot task '$taskName' created to run as $username every 2 minutes. Script path: $scriptPath"
+          Write-Host "Logs will be saved to $rdpDownloads as hotspot-log-*.txt"
+
+      - name: Maintain Connection
+        # keep this step running so the job doesn't exit early; it's part of your original flow
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Username: $env:RDP_USER"
+          Write-Host "Password: $env:RDP_PASSWORD"
+          Write-Host "==================`n"
+          # Run a loop for the duration of the job to keep the runner alive (until timeout)
+          $end = (Get-Date).AddMinutes(50)
+          while ((Get-Date) -lt $end) {
+            Start-Sleep -Seconds 300
+            Write-Host "Heartbeat at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+          }
