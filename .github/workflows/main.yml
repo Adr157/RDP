@@ -1,4 +1,4 @@
-name: 🇧🇷 RDP Hyper Optimized BR (PT-BR Instantâneo)
+name: RDP Hyper Optimized BR
 
 on:
   workflow_dispatch:
@@ -8,128 +8,109 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
 
-    steps:
-      - name: 🧱 Habilitar RDP + Desativar NLA
-        run: |
-          Write-Host "🔧 Habilitando RDP e liberando firewall..." -ForegroundColor Cyan
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
-          Write-Host "✅ RDP habilitado com sucesso!" -ForegroundColor Green
+    steps:    
+      - name: Enable RDP + Disable NLA    
+        run: |    
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                           -Name "fDenyTSConnections" -Value 0 -Force    
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                           -Name "UserAuthentication" -Value 0 -Force    
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                           -Name "SecurityLayer" -Value 0 -Force    
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389    
+          Restart-Service -Name TermService -Force    
 
-      - name: 👤 Criar Usuário RDP com Autologin
-        run: |
-          $username = "RDP"
-          $password = "882188Adr"
-          Write-Host "👤 Criando usuário RDP..." -ForegroundColor Cyan
-          net user $username $password /add
-          net localgroup administrators $username /add
-          net localgroup "Remote Desktop Users" $username /add
-          Write-Host "🔁 Configurando autologin..." -ForegroundColor Yellow
-          reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 1 /f
-          reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultUserName /t REG_SZ /d "RDP" /f
-          reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /t REG_SZ /d "882188Adr" /f
-          Write-Host "✅ Usuário RDP criado e configurado!" -ForegroundColor Green
+      - name: Create Autologin User    
+        run: |    
+          $username = "RDP"    
+          $password = "882188Adr"    
+          net user $username $password /add    
+          net localgroup administrators $username /add    
+          net localgroup "Remote Desktop Users" $username /add    
 
-      - name: 🌎 Configurar Idioma, Região e Teclado (PT-BR Instantâneo)
-        run: |
-          Write-Host "🌎 Aplicando idioma e teclado PT-BR..." -ForegroundColor Cyan
-          
-          # Idioma, cultura e fuso horário
-          Set-WinSystemLocale -SystemLocale pt-BR
-          Set-WinUILanguageOverride -Language pt-BR
-          Set-WinUserLanguageList -LanguageList pt-BR -Force
-          Set-Culture pt-BR
-          Set-WinCultureFromLanguageListOptOut -OptOut 0
-          Set-TimeZone -Id "E. South America Standard Time"
+          # Ativar autologin    
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "AutoAdminLogon" -Value "1" -Type String    
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultUserName" -Value $username -Type String    
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+            -Name "DefaultPassword" -Value $password -Type String    
 
-          # Corrigir localização (GeoID via registro)
-          reg add "HKCU\Control Panel\International\Geo" /v Nation /t REG_SZ /d "31" /f
-          reg add "HKU\.DEFAULT\Control Panel\International\Geo" /v Nation /t REG_SZ /d "31" /f
+      - name: Configure Locale and Timezone (Brazil)    
+        run: |    
+          # Definir idioma, teclado e região para PT-BR    
+          Set-WinSystemLocale -SystemLocale pt-BR    
+          Set-WinUserLanguageList -LanguageList pt-BR -Force    
+          Set-WinUILanguageOverride -Language pt-BR    
+          Set-WinCultureFromLanguageListOptOut -OptOut 0    
 
-          # Layout de teclado ABNT2
-          $LangList = New-WinUserLanguageList pt-BR
-          $LangList[0].InputMethodTips.Add("0416:00010416")
-          Set-WinUserLanguageList $LangList -Force
+          # Fuso horário de Brasília (GMT-3)    
+          Set-TimeZone -Id "E. South America Standard Time"    
 
-          # Persistir idioma e layout em todas as contas
-          reg add "HKCU\Control Panel\International" /v LocaleName /t REG_SZ /d "pt-BR" /f
-          reg add "HKCU\Control Panel\International" /v Locale /t REG_SZ /d "00000416" /f
-          reg add "HKCU\Keyboard Layout\Preload" /v 1 /t REG_SZ /d "00000416" /f
-          reg add "HKCU\Keyboard Layout\Substitutes" /v 00000416 /t REG_SZ /d "00010416" /f
-          reg add "HKU\.DEFAULT\Control Panel\International" /v LocaleName /t REG_SZ /d "pt-BR" /f
-          reg add "HKU\.DEFAULT\Keyboard Layout\Preload" /v 1 /t REG_SZ /d "00000416" /f
-          reg add "HKU\.DEFAULT\Keyboard Layout\Substitutes" /v 00000416 /t REG_SZ /d "00010416" /f
+          # Configurar teclado ABNT2    
+          $LangList = New-WinUserLanguageList pt-BR    
+          $LangList[0].InputMethodTips.Add("0416:00010416")    
+          Set-WinUserLanguageList $LangList -Force    
 
-          # Aplicar instantaneamente
-          rundll32.exe user32.dll,UpdatePerUserSystemParameters
-          Write-Host "✅ Sistema totalmente configurado em PT-BR instantaneamente!" -ForegroundColor Green
+      - name: Install NVIDIA GPU Drivers    
+        run: |    
+          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"    
+          $driver = "$env:TEMP\nvidia_driver.exe"    
+          Invoke-WebRequest -Uri $url -OutFile $driver    
+          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait    
+          Remove-Item $driver -Force    
 
-      - name: 🎮 Instalar Drivers NVIDIA GPU
-        run: |
-          Write-Host "🎮 Instalando drivers NVIDIA..." -ForegroundColor Cyan
-          $url = "https://us.download.nvidia.com/Windows/536.23/536.23-desktop-win10-win11-64bit-international-dch-whql.exe"
-          $driver = "$env:TEMP\nvidia_driver.exe"
-          Invoke-WebRequest -Uri $url -OutFile $driver
-          Start-Process -FilePath $driver -ArgumentList "-s","-noreboot" -Wait
-          Remove-Item $driver -Force
-          Write-Host "✅ Driver NVIDIA instalado!" -ForegroundColor Green
+      - name: Ultra Optimize Windows Performance    
+        run: |    
+          # Desativar animações, efeitos visuais e atrasos    
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"    
+          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"    
 
-      - name: ⚡ Otimizar Desempenho do Windows
-        run: |
-          Write-Host "⚡ Aplicando otimizações de desempenho..." -ForegroundColor Cyan
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80))
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "MenuShowDelay" -Value "0"
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "WaitToKillAppTimeout" -Value "2000"
-          Set-ItemProperty "HKCU:\Control Panel\Desktop" -Name "HungAppTimeout" -Value "1000"
-          $services = "DiagTrack","WSearch","Spooler"
-          foreach ($s in $services) {
-              Stop-Service -Name $s -ErrorAction SilentlyContinue
-              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
-          }
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f
-          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f
-          Write-Host "✅ Otimização aplicada com sucesso!" -ForegroundColor Green
+          # Desligar serviços desnecessários    
+          $services = "DiagTrack","WSearch","Spooler"    
+          foreach ($s in $services) {    
+              Stop-Service -Name $s -ErrorAction SilentlyContinue    
+              Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue    
+          }    
 
-      - name: 🌐 Instalar Tailscale
-        run: |
-          Write-Host "🌐 Instalando Tailscale..." -ForegroundColor Cyan
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
-          Write-Host "✅ Tailscale instalado!" -ForegroundColor Green
+          # Desligar efeitos da barra e transparências    
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f    
+          reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v ColorPrevalence /t REG_DWORD /d 0 /f    
 
-      - name: 🔗 Conectar ao Tailscale
-        run: |
-          Write-Host "🔗 Conectando ao Tailscale..." -ForegroundColor Cyan
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          for ($i=0; $i -lt 10; $i++) {
-            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-            if ($tsIP) { break }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $tsIP) { throw "❌ Nenhum IP Tailscale encontrado" }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-          Write-Host "✅ Conectado com sucesso!" -ForegroundColor Green
+      - name: Install Tailscale    
+        run: |    
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"    
+          $installerPath = "$env:TEMP\tailscale.msi"    
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath    
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait    
+          Remove-Item $installerPath -Force    
 
-      - name: 💻 Mostrar Informações de Acesso
-        run: |
-          Write-Host ""
-          Write-Host "==============================" -ForegroundColor Yellow
-          Write-Host "💻 ACESSO RDP ATIVO!" -ForegroundColor Green
-          Write-Host "🌐 IP (Tailscale): $env:TAILSCALE_IP" -ForegroundColor Cyan
-          Write-Host "👤 Usuário: RDP" -ForegroundColor White
-          Write-Host "🔑 Senha: 882188Adr" -ForegroundColor White
-          Write-Host "🌎 Idioma: Português (Brasil)" -ForegroundColor Green
-          Write-Host "⌨️ Teclado: ABNT2" -ForegroundColor Green
-          Write-Host "⏰ Fuso horário: Brasília (GMT-3)" -ForegroundColor Green
-          Write-Host "🎮 GPU: NVIDIA" -ForegroundColor Green
-          Write-Host "✅ Sistema otimizado e pronto!" -ForegroundColor Cyan
-          Write-Host "==============================" -ForegroundColor Yellow
+      - name: Establish Tailscale Connection    
+        run: |    
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID    
+          $tsIP = $null    
+          for ($i=0; $i -lt 10; $i++) {    
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4    
+            if ($tsIP) { break }    
+            Start-Sleep -Seconds 5    
+          }    
+          if (-not $tsIP) { throw "No Tailscale IP found" }    
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV    
+
+      - name: Show Access Info    
+        run: |    
+          Write-Host "`n=== RDP ACCESS ==="    
+          Write-Host "Address: $env:TAILSCALE_IP"    
+          Write-Host "Username: RDP"    
+          Write-Host "Password: 882188Adr"    
+          Write-Host "🌎 Região configurada: Brasil (pt-BR)"    
+          Write-Host "⏰ Fuso horário: Brasília (GMT-3)"    
+          Write-Host "⌨️ Teclado: ABNT2"    
+          Write-Host "✅ GPU driver installed"    
+          Write-Host "✅ Windows ultra optimized"    
+          Write-Host "✅ Tailscale ready"    
+          Write-Host "==================`n"    
           while ($true) { Start-Sleep -Seconds 300 }
